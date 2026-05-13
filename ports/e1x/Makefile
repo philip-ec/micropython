@@ -1,0 +1,82 @@
+include ../../py/mkenv.mk
+
+QSTR_DEFS = qstrdefsport.h
+MICROPY_ROM_TEXT_COMPRESSION ?= 1
+
+include $(TOP)/py/py.mk
+
+# E1x SDK paths — override with env vars if the layout ever changes
+EFFCC_DIR ?= $(HOME)/effcc
+EFF_BLD   ?= $(HOME)/dev/projects/bld
+
+# Override compiler tools AFTER py.mk has set them from CROSS_COMPILE
+CC      = $(EFFCC_DIR)/bin/effcc
+CXX     = $(EFFCC_DIR)/bin/effcc++
+AR      = $(EFFCC_DIR)/bin/llvm-ar
+OBJCOPY = /usr/bin/objcopy
+LD      = $(EFFCC_DIR)/bin/effcc
+CPP     = $(TOP)/ports/e1x/effcc_cpp.sh -E
+STRIP   = $(EFFCC_DIR)/bin/llvm-strip
+
+EFF_TARGET = --target=e1x -DHW_BUILD
+
+# Disable host system headers; provide E1x libc + clang built-ins explicitly.
+# The port directory comes first so our unistd.h stub is found before anything else.
+SYSROOT_INC  = --nostdinc
+SYSROOT_INC += -I$(EFFCC_DIR)/lib/clang/22/include
+SYSROOT_INC += -I$(EFFCC_DIR)/support/ilp32/libc/include
+
+INC += -I.
+INC += -I$(TOP)
+INC += -I$(BUILD)
+INC += -I$(EFFCC_DIR)/sdk/include
+
+CFLAGS  += $(INC) $(SYSROOT_INC) $(EFF_TARGET) -std=c99 -Wall -Os -DNDEBUG
+CFLAGS  += -fdata-sections -ffunction-sections
+
+CSUPEROPT = -Os
+
+EFF_SDK_LIBS  = $(EFF_BLD)/sdk/stdlib/libeff.a
+EFF_SDK_LIBS += -Wl,--whole-archive $(EFF_BLD)/sdk/stdlib/libeff_init.a -Wl,--no-whole-archive
+EFF_SDK_LIBS += $(EFF_BLD)/sdk/drivers/uart/scalar/libeff_eff_drv_uart.a
+EFF_SDK_LIBS += $(EFF_BLD)/sdk/drivers/pinmux/scalar/libeff_eff_drv_pinmux.a
+EFF_SDK_LIBS += $(EFF_BLD)/sdk/drivers/i2c/scalar/libeff_eff_drv_i2c.a
+EFF_SDK_LIBS += $(EFF_BLD)/sdk/drivers/gpio/scalar/libeff_eff_drv_gpio.a
+EFF_SDK_LIBS += $(EFF_BLD)/sdk/drivers/spi/scalar/libeff_eff_drv_spi.a
+
+LDFLAGS += $(EFF_TARGET) -Wl,--allow-multiple-definition -Wl,--gc-sections
+
+LIBS = $(EFF_SDK_LIBS)
+
+SRC_C = \
+	main.c \
+	uart_core.c \
+	modfabric.c \
+	shared/readline/readline.c \
+	shared/runtime/pyexec.c \
+	shared/runtime/stdout_helpers.c \
+
+SRC_QSTR += shared/readline/readline.c shared/runtime/pyexec.c modfabric.c
+
+OBJ += $(PY_CORE_O)
+OBJ += $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
+
+# fabric_kernel.c compiled with Fabric flags so __efficient__ offloads to hardware
+$(BUILD)/fabric_kernel.o: fabric_kernel.c
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(CFLAGS) -DUSE_PRAGMAS --disable-memory-ordering -c -o $@ $<
+
+OBJ += $(BUILD)/fabric_kernel.o
+
+all: $(BUILD)/firmware.hex
+
+$(BUILD)/firmware.elf: $(OBJ)
+	$(ECHO) "LINK $@"
+	$(Q)$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+$(BUILD)/firmware.hex: $(BUILD)/firmware.elf
+	$(ECHO) "HEX  $@"
+	$(Q)$(OBJCOPY) -O verilog $< $@
+	@echo "Flash with: eff-flash $(BUILD)/firmware.hex sram"
+
+include $(TOP)/py/mkrules.mk
