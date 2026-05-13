@@ -18,10 +18,11 @@ int main(int argc, char **argv) {
     stack_top = (char *)&stack_dummy;
 
     gc_init(heap, heap + sizeof(heap));
-    mp_init();
-    pyexec_friendly_repl();
-    mp_deinit();
-    return 0;
+    for (;;) {
+        mp_init();
+        pyexec_friendly_repl();
+        mp_deinit();
+    }
 }
 
 void gc_collect(void) {
