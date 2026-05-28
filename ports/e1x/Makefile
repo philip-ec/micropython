@@ -23,7 +23,7 @@ EFF_TARGET = --target=e1x -DHW_BUILD
 # Disable host system headers; provide E1x libc + clang built-ins explicitly.
 # The port directory comes first so our unistd.h stub is found before anything else.
 SYSROOT_INC  = --nostdinc
-SYSROOT_INC += -I$(EFFCC_DIR)/lib/clang/22/include
+SYSROOT_INC += -I$(EFFCC_DIR)/lib/clang/23/include
 SYSROOT_INC += -I$(EFFCC_DIR)/support/ilp32/libc/include
 
 INC += -I.
