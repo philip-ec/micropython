@@ -22,6 +22,22 @@ void matvec(const int32_t *mat, const int32_t *vec, int32_t *out,
     }
 }
 
+// Direct Form I biquad IIR. Coefficients in Q15 (scale floats by 32768).
+// a1, a2 are the feedback coefficients (sign matches standard notation:
+// y[n] = (b0*x[n] + b1*x1 + b2*x2 - a1*y1 - a2*y2) >> 15
+__efficient__
+void biquad(const int32_t *x, int32_t *y, int32_t n,
+            int32_t b0, int32_t b1, int32_t b2,
+            int32_t a1, int32_t a2) {
+    int32_t x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (int32_t i = 0; i < n; i++) {
+        int32_t out = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) >> 15;
+        x2 = x1; x1 = x[i];
+        y2 = y1; y1 = out;
+        y[i] = out;
+    }
+}
+
 __efficient__
 void matmul_int8(const int8_t *a, const int8_t *b, int32_t *out,
                  int32_t M, int32_t K, int32_t N) {

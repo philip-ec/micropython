@@ -8,11 +8,51 @@
 #define MAX_MATMUL    16
 
 int32_t dot_product(const int32_t *a, const int32_t *b, int32_t n);
+void biquad(const int32_t *x, int32_t *y, int32_t n, int32_t b0, int32_t b1, int32_t b2, int32_t a1, int32_t a2);
 void matmul_int8(const int8_t *a, const int8_t *b, int32_t *out, int32_t M, int32_t K, int32_t N);
 void matvec(const int32_t *mat, const int32_t *vec, int32_t *out, int32_t rows, int32_t cols);
 void mul(const int32_t *a, const int32_t *b, int32_t *out, int32_t n);
 int32_t argmax(const int32_t *a, int32_t n);
 void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out, int32_t sig_len, int32_t n_coeffs);
+
+// fabric.biquad(signal, coeffs)
+// signal: list of ints (raw samples), max 256
+// coeffs: list of 5 ints [b0, b1, b2, a1, a2] in Q15 (multiply floats by 32768)
+// returns: list of filtered ints
+static mp_obj_t fabric_biquad(mp_obj_t signal_obj, mp_obj_t coeffs_obj) {
+    size_t sig_len, n_coeffs;
+    mp_obj_t *sig_items, *coeff_items;
+    mp_obj_get_array(signal_obj, &sig_len, &sig_items);
+    mp_obj_get_array(coeffs_obj, &n_coeffs, &coeff_items);
+
+    if (n_coeffs != 5) {
+        mp_raise_ValueError(MP_ERROR_TEXT("coeffs must be [b0,b1,b2,a1,a2]"));
+    }
+    if (sig_len == 0 || sig_len > MAX_N) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal length must be 1..256"));
+    }
+
+    int32_t sig_buf[MAX_N], out_buf[MAX_N];
+    for (size_t i = 0; i < sig_len; i++) {
+        sig_buf[i] = mp_obj_get_int(sig_items[i]);
+    }
+
+    int32_t b0 = mp_obj_get_int(coeff_items[0]);
+    int32_t b1 = mp_obj_get_int(coeff_items[1]);
+    int32_t b2 = mp_obj_get_int(coeff_items[2]);
+    int32_t a1 = mp_obj_get_int(coeff_items[3]);
+    int32_t a2 = mp_obj_get_int(coeff_items[4]);
+
+    biquad(sig_buf, out_buf, (int32_t)sig_len, b0, b1, b2, a1, a2);
+
+    mp_obj_t result = mp_obj_new_list(sig_len, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < sig_len; i++) {
+        result_list->items[i] = mp_obj_new_int(out_buf[i]);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(fabric_biquad_obj, fabric_biquad);
 
 // fabric.matmul_int8(A, B)
 // A: list of rows (int8 values, -128..127), shape MxK, max 16x16
@@ -276,6 +316,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(fabric_fir_obj, fabric_fir);
 
 static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fabric) },
+    { MP_ROM_QSTR(MP_QSTR_biquad), MP_ROM_PTR(&fabric_biquad_obj) },
     { MP_ROM_QSTR(MP_QSTR_matmul_int8), MP_ROM_PTR(&fabric_matmul_int8_obj) },
     { MP_ROM_QSTR(MP_QSTR_dot_product), MP_ROM_PTR(&fabric_dot_product_obj) },
     { MP_ROM_QSTR(MP_QSTR_matvec), MP_ROM_PTR(&fabric_matvec_obj) },
