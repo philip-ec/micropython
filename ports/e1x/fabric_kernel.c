@@ -21,3 +21,16 @@ void matvec(const int32_t *mat, const int32_t *vec, int32_t *out,
         out[i] = sum;
     }
 }
+
+__efficient__
+void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out,
+         int32_t sig_len, int32_t n_coeffs) {
+    int32_t out_len = sig_len - n_coeffs + 1;
+    for (int32_t i = 0; i < out_len; i++) {
+        int32_t sum = 0;
+        for (int32_t j = 0; j < n_coeffs; j++) {
+            sum += signal[i + j] * coeffs[j];
+        }
+        out[i] = sum;
+    }
+}

@@ -8,6 +8,7 @@
 
 int32_t dot_product(const int32_t *a, const int32_t *b, int32_t n);
 void matvec(const int32_t *mat, const int32_t *vec, int32_t *out, int32_t rows, int32_t cols);
+void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out, int32_t sig_len, int32_t n_coeffs);
 
 static mp_obj_t fabric_dot_product(mp_obj_t a_obj, mp_obj_t b_obj) {
     size_t a_len, b_len;
@@ -94,10 +95,53 @@ static mp_obj_t fabric_matvec(mp_obj_t mat_obj, mp_obj_t vec_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_matvec_obj, fabric_matvec);
 
+// fabric.fir(signal, coeffs)
+// signal: list of ints, coeffs: list of ints (taps)
+// returns: list of ints, length == len(signal) - len(coeffs) + 1
+static mp_obj_t fabric_fir(mp_obj_t signal_obj, mp_obj_t coeffs_obj) {
+    size_t sig_len, n_coeffs;
+    mp_obj_t *sig_items, *coeff_items;
+    mp_obj_get_array(signal_obj, &sig_len, &sig_items);
+    mp_obj_get_array(coeffs_obj, &n_coeffs, &coeff_items);
+
+    if (n_coeffs == 0 || n_coeffs > MAX_N) {
+        mp_raise_ValueError(MP_ERROR_TEXT("coeffs length must be 1..256"));
+    }
+    if (sig_len < n_coeffs) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal shorter than coeffs"));
+    }
+    if (sig_len > MAX_N) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal too long (max 256)"));
+    }
+
+    int32_t sig_buf[MAX_N];
+    int32_t coeff_buf[MAX_N];
+    int32_t out_buf[MAX_N];
+
+    for (size_t i = 0; i < sig_len; i++) {
+        sig_buf[i] = mp_obj_get_int(sig_items[i]);
+    }
+    for (size_t i = 0; i < n_coeffs; i++) {
+        coeff_buf[i] = mp_obj_get_int(coeff_items[i]);
+    }
+
+    int32_t out_len = (int32_t)(sig_len - n_coeffs + 1);
+    fir(sig_buf, coeff_buf, out_buf, (int32_t)sig_len, (int32_t)n_coeffs);
+
+    mp_obj_t result = mp_obj_new_list((size_t)out_len, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (int32_t i = 0; i < out_len; i++) {
+        result_list->items[i] = mp_obj_new_int(out_buf[i]);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(fabric_fir_obj, fabric_fir);
+
 static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fabric) },
     { MP_ROM_QSTR(MP_QSTR_dot_product), MP_ROM_PTR(&fabric_dot_product_obj) },
     { MP_ROM_QSTR(MP_QSTR_matvec), MP_ROM_PTR(&fabric_matvec_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fir), MP_ROM_PTR(&fabric_fir_obj) },
 };
 static MP_DEFINE_CONST_DICT(fabric_module_globals, fabric_module_globals_table);
 
