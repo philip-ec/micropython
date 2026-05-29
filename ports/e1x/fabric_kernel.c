@@ -23,6 +23,20 @@ void matvec(const int32_t *mat, const int32_t *vec, int32_t *out,
 }
 
 __efficient__
+void matmul_int8(const int8_t *a, const int8_t *b, int32_t *out,
+                 int32_t M, int32_t K, int32_t N) {
+    for (int32_t i = 0; i < M; i++) {
+        for (int32_t j = 0; j < N; j++) {
+            int32_t sum = 0;
+            for (int32_t k = 0; k < K; k++) {
+                sum += (int32_t)a[i * K + k] * (int32_t)b[k * N + j];
+            }
+            out[i * N + j] = sum;
+        }
+    }
+}
+
+__efficient__
 void mul(const int32_t *a, const int32_t *b, int32_t *out, int32_t n) {
     for (int32_t i = 0; i < n; i++) {
         out[i] = a[i] * b[i];

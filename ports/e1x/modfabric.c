@@ -2,15 +2,96 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
-#define MAX_N    256
-#define MAX_ROWS  32
-#define MAX_COLS  32
+#define MAX_N        256
+#define MAX_ROWS      32
+#define MAX_COLS      32
+#define MAX_MATMUL    16
 
 int32_t dot_product(const int32_t *a, const int32_t *b, int32_t n);
+void matmul_int8(const int8_t *a, const int8_t *b, int32_t *out, int32_t M, int32_t K, int32_t N);
 void matvec(const int32_t *mat, const int32_t *vec, int32_t *out, int32_t rows, int32_t cols);
 void mul(const int32_t *a, const int32_t *b, int32_t *out, int32_t n);
 int32_t argmax(const int32_t *a, int32_t n);
 void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out, int32_t sig_len, int32_t n_coeffs);
+
+// fabric.matmul_int8(A, B)
+// A: list of rows (int8 values, -128..127), shape MxK, max 16x16
+// B: list of rows (int8 values, -128..127), shape KxN, max 16x16
+// returns: list of rows (int32 accumulators), shape MxN
+static mp_obj_t fabric_matmul_int8(mp_obj_t a_obj, mp_obj_t b_obj) {
+    size_t M, K, K2, N;
+    mp_obj_t *a_rows, *b_rows;
+
+    mp_obj_get_array(a_obj, &M, &a_rows);
+    mp_obj_get_array(b_obj, &K2, &b_rows);
+
+    if (M == 0 || M > MAX_MATMUL) {
+        mp_raise_ValueError(MP_ERROR_TEXT("A rows must be 1..16"));
+    }
+
+    size_t r0_len;
+    mp_obj_t *r0_items;
+    mp_obj_get_array(a_rows[0], &r0_len, &r0_items);
+    K = r0_len;
+
+    if (K == 0 || K > MAX_MATMUL) {
+        mp_raise_ValueError(MP_ERROR_TEXT("A cols must be 1..16"));
+    }
+    if (K2 != K) {
+        mp_raise_ValueError(MP_ERROR_TEXT("A cols must equal B rows"));
+    }
+
+    size_t b0_len;
+    mp_obj_t *b0_items;
+    mp_obj_get_array(b_rows[0], &b0_len, &b0_items);
+    N = b0_len;
+
+    if (N == 0 || N > MAX_MATMUL) {
+        mp_raise_ValueError(MP_ERROR_TEXT("B cols must be 1..16"));
+    }
+
+    int8_t  a_buf[MAX_MATMUL * MAX_MATMUL];
+    int8_t  b_buf[MAX_MATMUL * MAX_MATMUL];
+    int32_t out_buf[MAX_MATMUL * MAX_MATMUL];
+
+    for (size_t i = 0; i < M; i++) {
+        size_t row_len;
+        mp_obj_t *row_elems;
+        mp_obj_get_array(a_rows[i], &row_len, &row_elems);
+        if (row_len != K) {
+            mp_raise_ValueError(MP_ERROR_TEXT("all A rows must be same length"));
+        }
+        for (size_t k = 0; k < K; k++) {
+            a_buf[i * K + k] = (int8_t)mp_obj_get_int(row_elems[k]);
+        }
+    }
+    for (size_t k = 0; k < K2; k++) {
+        size_t row_len;
+        mp_obj_t *row_elems;
+        mp_obj_get_array(b_rows[k], &row_len, &row_elems);
+        if (row_len != N) {
+            mp_raise_ValueError(MP_ERROR_TEXT("all B rows must be same length"));
+        }
+        for (size_t j = 0; j < N; j++) {
+            b_buf[k * N + j] = (int8_t)mp_obj_get_int(row_elems[j]);
+        }
+    }
+
+    matmul_int8(a_buf, b_buf, out_buf, (int32_t)M, (int32_t)K, (int32_t)N);
+
+    mp_obj_t result = mp_obj_new_list(M, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < M; i++) {
+        mp_obj_t row = mp_obj_new_list(N, NULL);
+        mp_obj_list_t *row_list = MP_OBJ_TO_PTR(row);
+        for (size_t j = 0; j < N; j++) {
+            row_list->items[j] = mp_obj_new_int(out_buf[i * N + j]);
+        }
+        result_list->items[i] = row;
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(fabric_matmul_int8_obj, fabric_matmul_int8);
 
 static mp_obj_t fabric_dot_product(mp_obj_t a_obj, mp_obj_t b_obj) {
     size_t a_len, b_len;
@@ -195,6 +276,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(fabric_fir_obj, fabric_fir);
 
 static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fabric) },
+    { MP_ROM_QSTR(MP_QSTR_matmul_int8), MP_ROM_PTR(&fabric_matmul_int8_obj) },
     { MP_ROM_QSTR(MP_QSTR_dot_product), MP_ROM_PTR(&fabric_dot_product_obj) },
     { MP_ROM_QSTR(MP_QSTR_matvec), MP_ROM_PTR(&fabric_matvec_obj) },
     { MP_ROM_QSTR(MP_QSTR_fir), MP_ROM_PTR(&fabric_fir_obj) },
