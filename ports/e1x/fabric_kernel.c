@@ -23,6 +23,13 @@ void matvec(const int32_t *mat, const int32_t *vec, int32_t *out,
 }
 
 __efficient__
+void mul(const int32_t *a, const int32_t *b, int32_t *out, int32_t n) {
+    for (int32_t i = 0; i < n; i++) {
+        out[i] = a[i] * b[i];
+    }
+}
+
+__efficient__
 int32_t argmax(const int32_t *a, int32_t n) {
     int32_t best_idx = 0;
     int32_t best_val = a[0];

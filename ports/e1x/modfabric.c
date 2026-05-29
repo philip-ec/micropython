@@ -8,6 +8,7 @@
 
 int32_t dot_product(const int32_t *a, const int32_t *b, int32_t n);
 void matvec(const int32_t *mat, const int32_t *vec, int32_t *out, int32_t rows, int32_t cols);
+void mul(const int32_t *a, const int32_t *b, int32_t *out, int32_t n);
 int32_t argmax(const int32_t *a, int32_t n);
 void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out, int32_t sig_len, int32_t n_coeffs);
 
@@ -96,6 +97,37 @@ static mp_obj_t fabric_matvec(mp_obj_t mat_obj, mp_obj_t vec_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_matvec_obj, fabric_matvec);
 
+// fabric.mul(a, b) → element-wise multiply
+static mp_obj_t fabric_mul(mp_obj_t a_obj, mp_obj_t b_obj) {
+    size_t a_len, b_len;
+    mp_obj_t *a_items, *b_items;
+    mp_obj_get_array(a_obj, &a_len, &a_items);
+    mp_obj_get_array(b_obj, &b_len, &b_items);
+
+    if (a_len != b_len) {
+        mp_raise_ValueError(MP_ERROR_TEXT("lists must be same length"));
+    }
+    if (a_len > MAX_N) {
+        mp_raise_ValueError(MP_ERROR_TEXT("list too long (max 256)"));
+    }
+
+    int32_t a_buf[MAX_N], b_buf[MAX_N], out_buf[MAX_N];
+    for (size_t i = 0; i < a_len; i++) {
+        a_buf[i] = mp_obj_get_int(a_items[i]);
+        b_buf[i] = mp_obj_get_int(b_items[i]);
+    }
+
+    mul(a_buf, b_buf, out_buf, (int32_t)a_len);
+
+    mp_obj_t result = mp_obj_new_list(a_len, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < a_len; i++) {
+        result_list->items[i] = mp_obj_new_int(out_buf[i]);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(fabric_mul_obj, fabric_mul);
+
 // fabric.argmax(scores) → index of maximum value
 static mp_obj_t fabric_argmax(mp_obj_t a_obj) {
     size_t len;
@@ -167,6 +199,7 @@ static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_matvec), MP_ROM_PTR(&fabric_matvec_obj) },
     { MP_ROM_QSTR(MP_QSTR_fir), MP_ROM_PTR(&fabric_fir_obj) },
     { MP_ROM_QSTR(MP_QSTR_argmax), MP_ROM_PTR(&fabric_argmax_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mul), MP_ROM_PTR(&fabric_mul_obj) },
 };
 static MP_DEFINE_CONST_DICT(fabric_module_globals, fabric_module_globals_table);
 
