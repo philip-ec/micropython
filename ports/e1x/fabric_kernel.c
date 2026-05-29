@@ -23,6 +23,19 @@ void matvec(const int32_t *mat, const int32_t *vec, int32_t *out,
 }
 
 __efficient__
+int32_t argmax(const int32_t *a, int32_t n) {
+    int32_t best_idx = 0;
+    int32_t best_val = a[0];
+    for (int32_t i = 1; i < n; i++) {
+        if (a[i] > best_val) {
+            best_val = a[i];
+            best_idx = i;
+        }
+    }
+    return best_idx;
+}
+
+__efficient__
 void fir(const int32_t *signal, const int32_t *coeffs, int32_t *out,
          int32_t sig_len, int32_t n_coeffs) {
     int32_t out_len = sig_len - n_coeffs + 1;
