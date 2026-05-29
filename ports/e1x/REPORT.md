@@ -14,9 +14,10 @@ fabric.matvec([[1,2],[3,4]], [1, 1])                    # → [3, 7]
 fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                 # → [6, 9, 12]
 fabric.argmax([3, 1, 9, 2])                             # → 2
 fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                 # → [4, 6, 6, 4]
+fabric.matmul_int8([[1,2],[3,4]], [[5,6],[7,8]])        # → [[19,22],[43,50]]
 ```
 
-All five computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
+All six computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
 
 ---
 
@@ -93,21 +94,14 @@ Dot product was chosen as the first kernel for several reasons:
 
 | Function | Signature | Returns | Purpose |
 |----------|-----------|---------|---------|
-| `dot_product` | `(a, b)` | `int` | Sum of element-wise products |
-| `matvec` | `(matrix, vec)` | `list` | Matrix-vector multiply; core of a FC layer |
-| `fir` | `(signal, coeffs)` | `list` | Sliding-window FIR filter |
-| `argmax` | `(scores,)` | `int` | Index of maximum value; classification output |
-| `mul` | `(a, b)` | `list` | Element-wise multiply (Hadamard product) |
+| `dot_product` | `(a, b)` | `int` | Sum of element-wise products; max 256 elements |
+| `matvec` | `(matrix, vec)` | `list` | Matrix-vector multiply; max 32×32 |
+| `fir` | `(signal, coeffs)` | `list` | Sliding-window FIR filter; max 256 elements |
+| `argmax` | `(scores,)` | `int` | Index of maximum value; max 256 elements |
+| `mul` | `(a, b)` | `list` | Element-wise multiply; max 256 elements |
+| `matmul_int8` | `(A, B)` | `list of lists` | Int8 matrix multiply, int32 accumulators; max 16×16 |
 
-All kernels operate on `int32_t` fixed-point. Max 256 elements per call (`MAX_N`); `matvec` supports up to 32×32 matrices (`MAX_ROWS`, `MAX_COLS`).
-
-## Recommended Next Kernel
-
-### Quantised Matrix Multiply (int8 × int8 → int32)
-```python
-fabric.matmul_int8(A, B)  # → C  (int32 accumulator)
-```
-The core of quantised neural network inference. Each output element is a dot product of an int8 row with an int8 column. This is the most performance-sensitive primitive for running TFLite-style models on the Fabric.
+All kernels operate on fixed-point integers. Input values must be Python ints; floats require explicit quantisation (`int(x * scale)`) before passing in.
 
 ---
 
