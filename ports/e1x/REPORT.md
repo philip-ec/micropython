@@ -5,15 +5,18 @@
 
 ## Overview
 
-We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired a Fabric-accelerated fixed-point kernel into it as a Python-callable module. The end result is a live REPL where a developer can type:
+We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with five hardware-accelerated primitives:
 
 ```python
 import fabric
-fabric.dot_product([1, 2, 3, 4], [4, 3, 2, 1])
-# → 20
+fabric.dot_product([1, 2, 3, 4], [4, 3, 2, 1])        # → 20
+fabric.matvec([[1,2],[3,4]], [1, 1])                    # → [3, 7]
+fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                 # → [6, 9, 12]
+fabric.argmax([3, 1, 9, 2])                             # → 2
+fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                 # → [4, 6, 6, 4]
 ```
 
-and that computation runs on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
+All five computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
 
 ---
 
@@ -86,35 +89,21 @@ Dot product was chosen as the first kernel for several reasons:
 
 ---
 
-## Recommended Next Kernels
+## Implemented Kernels
 
-All of these are fixed-point, Fabric-eligible, and build naturally on the dot product foundation.
+| Function | Signature | Returns | Purpose |
+|----------|-----------|---------|---------|
+| `dot_product` | `(a, b)` | `int` | Sum of element-wise products |
+| `matvec` | `(matrix, vec)` | `list` | Matrix-vector multiply; core of a FC layer |
+| `fir` | `(signal, coeffs)` | `list` | Sliding-window FIR filter |
+| `argmax` | `(scores,)` | `int` | Index of maximum value; classification output |
+| `mul` | `(a, b)` | `list` | Element-wise multiply (Hadamard product) |
 
-### 1. Matrix-Vector Multiply
-```python
-fabric.matvec(matrix_rows, vector)  # → result vector
-```
-A matrix-vector product is just N dot products. This is the core of a fully-connected neural network layer and the most impactful single primitive to accelerate. Implement as a loop over rows in `modfabric.c`, calling the existing `dot_product` kernel per row, or write a dedicated 2D kernel.
+All kernels operate on `int32_t` fixed-point. Max 256 elements per call (`MAX_N`); `matvec` supports up to 32×32 matrices (`MAX_ROWS`, `MAX_COLS`).
 
-### 2. FIR Filter
-```python
-fabric.fir(signal, coefficients)  # → filtered signal
-```
-A sliding-window convolution over a 1D signal: each output sample is a dot product of the signal window with the coefficient vector. Directly Fabric-eligible as a nested fixed-point MAC loop. Useful for audio processing and sensor signal conditioning.
+## Recommended Next Kernel
 
-### 3. Element-wise Multiply (Hadamard Product)
-```python
-fabric.hadamard(a, b)  # → [a[i]*b[i] for i in range(n)]
-```
-Simple but useful as a building block for attention mechanisms and gating functions. Produces a vector rather than a scalar, so the Python wrapper needs to return a list rather than a single int.
-
-### 4. Argmax
-```python
-fabric.argmax(scores)  # → index of maximum value
-```
-Returns the index of the largest element — the final step of classification inference. Pure comparison logic, no multiplication, so it is lightweight but useful to have in the `fabric` module for completeness.
-
-### 5. Quantised Matrix Multiply (int8 × int8 → int32)
+### Quantised Matrix Multiply (int8 × int8 → int32)
 ```python
 fabric.matmul_int8(A, B)  # → C  (int32 accumulator)
 ```
