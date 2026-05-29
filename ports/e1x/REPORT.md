@@ -5,7 +5,7 @@
 
 ## Overview
 
-We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with five hardware-accelerated primitives:
+We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with seven hardware-accelerated primitives:
 
 ```python
 import fabric
@@ -15,9 +15,10 @@ fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                 # → [6, 9, 12]
 fabric.argmax([3, 1, 9, 2])                             # → 2
 fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                 # → [4, 6, 6, 4]
 fabric.matmul_int8([[1,2],[3,4]], [[5,6],[7,8]])        # → [[19,22],[43,50]]
+fabric.biquad([100,200,300,400], [32768,0,0,0,0])      # → [100, 200, 300, 400]
 ```
 
-All six computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
+All seven computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
 
 ---
 
@@ -100,8 +101,18 @@ Dot product was chosen as the first kernel for several reasons:
 | `argmax` | `(scores,)` | `int` | Index of maximum value; max 256 elements |
 | `mul` | `(a, b)` | `list` | Element-wise multiply; max 256 elements |
 | `matmul_int8` | `(A, B)` | `list of lists` | Int8 matrix multiply, int32 accumulators; max 16×16 |
+| `biquad` | `(signal, coeffs)` | `list` | Direct Form I biquad IIR; coeffs `[b0,b1,b2,a1,a2]` in Q15 |
 
 All kernels operate on fixed-point integers. Input values must be Python ints; floats require explicit quantisation (`int(x * scale)`) before passing in.
+
+### Biquad coefficient format
+
+Coefficients are Q15: multiply float values by 32768 and round to int. Standard notation:
+```
+y[n] = (b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]) >> 15
+```
+All-pass (identity): `[32768, 0, 0, 0, 0]`
+Moving-average LPF: `[10922, 10922, 10922, 0, 0]` (≈ 1/3 each, sums to ~1.0)
 
 ---
 

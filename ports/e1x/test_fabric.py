@@ -33,4 +33,9 @@ assert fabric.matmul_int8([[1,2],[3,4]],[[1,0],[0,1]]) == [[1,2],[3,4]]
 assert fabric.matmul_int8([[1,2],[3,4]],[[5,6],[7,8]]) == [[19,22],[43,50]]
 print("matmul_int8 OK")
 
+# biquad — coefficients in Q15 (multiply floats by 32768)
+assert fabric.biquad([100,200,300,400], [32768,0,0,0,0]) == [100,200,300,400]
+assert fabric.biquad([100,200,300,200,100], [10922,10922,10922,0,0]) == [33,99,199,233,199]
+print("biquad OK")
+
 print("ALL PASS")
