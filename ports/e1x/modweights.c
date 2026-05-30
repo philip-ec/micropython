@@ -2,6 +2,11 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 
+// Fabric kernel — defined in fabric_kernel.c
+void matvec_int8_bias_rq(const int8_t *W, const int8_t *x, const int32_t *bias,
+                          int8_t *out, int32_t rows, int32_t cols,
+                          int32_t scale, int32_t shift, int32_t zero_point);
+
 static const int8_t weights_fc1[100352] = {
     7, -14, 10, -35, 2, -33, -28, -15, -46, 6, 26, 0, 16, 26, 6, -24,
     2, 11, 8, -22, 8, 28, -32, -3, -34, -13, -15, 5, 7, -3, -30, -14,
@@ -6395,21 +6400,15 @@ static mp_obj_t weights_fn_fc1(size_t n_args, const mp_obj_t *args) {
     int32_t scale = mp_obj_get_int(args[1]);
     int32_t shift = mp_obj_get_int(args[2]);
     int32_t zp    = mp_obj_get_int(args[3]);
-    int8_t x_buf[784];
+    int8_t x_buf[784], out_buf[128];
     for (int32_t i = 0; i < 784; i++)
         x_buf[i] = (int8_t)mp_obj_get_int(x_items[i]);
+    matvec_int8_bias_rq(weights_fc1, x_buf, bias_fc1, out_buf,
+                        128, 784, scale, shift, zp);
     mp_obj_t result = mp_obj_new_list(128, NULL);
     mp_obj_list_t *lst = MP_OBJ_TO_PTR(result);
-    for (int32_t i = 0; i < 128; i++) {
-        int32_t acc = 0;
-        for (int32_t k = 0; k < 784; k++)
-            acc += (int32_t)weights_fc1[i * 784 + k] * (int32_t)x_buf[k];
-        acc += bias_fc1[i];
-        int32_t v = ((acc * scale) >> shift) + zp;
-        if (v < -128) v = -128;
-        if (v >  127) v =  127;
-        lst->items[i] = mp_obj_new_int(v);
-    }
+    for (int32_t i = 0; i < 128; i++)
+        lst->items[i] = mp_obj_new_int((int32_t)out_buf[i]);
     return result;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(weights_fn_fc1_obj, 4, 4, weights_fn_fc1);
@@ -6425,21 +6424,15 @@ static mp_obj_t weights_fn_fc2(size_t n_args, const mp_obj_t *args) {
     int32_t scale = mp_obj_get_int(args[1]);
     int32_t shift = mp_obj_get_int(args[2]);
     int32_t zp    = mp_obj_get_int(args[3]);
-    int8_t x_buf[128];
+    int8_t x_buf[128], out_buf[10];
     for (int32_t i = 0; i < 128; i++)
         x_buf[i] = (int8_t)mp_obj_get_int(x_items[i]);
+    matvec_int8_bias_rq(weights_fc2, x_buf, bias_fc2, out_buf,
+                        10, 128, scale, shift, zp);
     mp_obj_t result = mp_obj_new_list(10, NULL);
     mp_obj_list_t *lst = MP_OBJ_TO_PTR(result);
-    for (int32_t i = 0; i < 10; i++) {
-        int32_t acc = 0;
-        for (int32_t k = 0; k < 128; k++)
-            acc += (int32_t)weights_fc2[i * 128 + k] * (int32_t)x_buf[k];
-        acc += bias_fc2[i];
-        int32_t v = ((acc * scale) >> shift) + zp;
-        if (v < -128) v = -128;
-        if (v >  127) v =  127;
-        lst->items[i] = mp_obj_new_int(v);
-    }
+    for (int32_t i = 0; i < 10; i++)
+        lst->items[i] = mp_obj_new_int((int32_t)out_buf[i]);
     return result;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(weights_fn_fc2_obj, 4, 4, weights_fn_fc2);

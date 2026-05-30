@@ -1,6 +1,25 @@
 #include <stdint.h>
 #include <eff.h>
 
+// Fused matrix-vector multiply + bias + requantize in one Fabric dispatch.
+// W: (rows x cols) int8, x: (cols) int8, bias: (rows) int32 accumulator units
+// out[i] = clamp(((dot(W_row_i, x) + bias[i]) * scale >> shift) + zp, -128, 127)
+__efficient__
+void matvec_int8_bias_rq(const int8_t *W, const int8_t *x, const int32_t *bias,
+                          int8_t *out, int32_t rows, int32_t cols,
+                          int32_t scale, int32_t shift, int32_t zero_point) {
+    for (int32_t i = 0; i < rows; i++) {
+        int32_t acc = bias[i];
+        for (int32_t k = 0; k < cols; k++) {
+            acc += (int32_t)W[i * cols + k] * (int32_t)x[k];
+        }
+        int32_t v = ((acc * scale) >> shift) + zero_point;
+        if (v < -128) v = -128;
+        if (v >  127) v =  127;
+        out[i] = (int8_t)v;
+    }
+}
+
 __efficient__
 void matmul_int8_rq(const int8_t *a, const int8_t *b, int8_t *out,
                     int32_t M, int32_t K, int32_t N,

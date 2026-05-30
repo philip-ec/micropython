@@ -35,8 +35,11 @@ def generate(spec_path):
     lines.append('#include "py/obj.h"')
     lines.append('#include "py/runtime.h"')
     lines.append('')
-
-    # forward-declare the Fabric kernel
+    lines.append('// Fabric kernel — defined in fabric_kernel.c')
+    lines.append('void matvec_int8_bias_rq(const int8_t *W, const int8_t *x, const int32_t *bias,')
+    lines.append('                          int8_t *out, int32_t rows, int32_t cols,')
+    lines.append('                          int32_t scale, int32_t shift, int32_t zero_point);')
+    lines.append('')
 
     layer_names = list(spec.keys())
 
@@ -80,22 +83,21 @@ def generate(spec_path):
         lines.append(f'    int32_t scale = mp_obj_get_int(args[1]);')
         lines.append(f'    int32_t shift = mp_obj_get_int(args[2]);')
         lines.append(f'    int32_t zp    = mp_obj_get_int(args[3]);')
-        lines.append(f'    int8_t x_buf[{cols}];')
+        lines.append(f'    int8_t x_buf[{cols}], out_buf[{rows}];')
         lines.append(f'    for (int32_t i = 0; i < {cols}; i++)')
         lines.append(f'        x_buf[i] = (int8_t)mp_obj_get_int(x_items[i]);')
+        if has_bias:
+            lines.append(f'    matvec_int8_bias_rq(weights_{name}, x_buf, bias_{name}, out_buf,')
+            lines.append(f'                        {rows}, {cols}, scale, shift, zp);')
+        else:
+            # no bias: use a zero-filled bias (rare case)
+            lines.append(f'    static const int32_t _zero_{name}[{rows}] = {{0}};')
+            lines.append(f'    matvec_int8_bias_rq(weights_{name}, x_buf, _zero_{name}, out_buf,')
+            lines.append(f'                        {rows}, {cols}, scale, shift, zp);')
         lines.append(f'    mp_obj_t result = mp_obj_new_list({rows}, NULL);')
         lines.append(f'    mp_obj_list_t *lst = MP_OBJ_TO_PTR(result);')
-        lines.append(f'    for (int32_t i = 0; i < {rows}; i++) {{')
-        lines.append(f'        int32_t acc = 0;')
-        lines.append(f'        for (int32_t k = 0; k < {cols}; k++)')
-        lines.append(f'            acc += (int32_t)weights_{name}[i * {cols} + k] * (int32_t)x_buf[k];')
-        if has_bias:
-            lines.append(f'        acc += bias_{name}[i];')
-        lines.append(f'        int32_t v = ((acc * scale) >> shift) + zp;')
-        lines.append(f'        if (v < -128) v = -128;')
-        lines.append(f'        if (v >  127) v =  127;')
-        lines.append(f'        lst->items[i] = mp_obj_new_int(v);')
-        lines.append(f'    }}')
+        lines.append(f'    for (int32_t i = 0; i < {rows}; i++)')
+        lines.append(f'        lst->items[i] = mp_obj_new_int((int32_t)out_buf[i]);')
         lines.append(f'    return result;')
         lines.append(f'}}')
         lines.append(f'static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(weights_fn_{name}_obj, 4, 4, weights_fn_{name});')
