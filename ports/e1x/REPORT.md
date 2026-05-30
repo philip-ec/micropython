@@ -7,37 +7,40 @@
 
 We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with 24 hardware-accelerated primitives covering linear algebra, signal processing, and neural network inference:
 
+The module namespace mirrors numpy/ulab — existing ulab code becomes a one-line import swap:
+
 ```python
-import fabric
+import fabric as np   # drop-in for ulab.numpy on Fabric-equipped boards
+
 # Linear algebra
-fabric.dot_product([1, 2, 3, 4], [4, 3, 2, 1])           # → 20
-fabric.matvec([[1,2],[3,4]], [1, 1])                       # → [3, 7]
-fabric.matmul([[1,2],[3,4]], [[5,6],[7,8]])                # → [[19,22],[43,50]]
-fabric.matmul_int8([[1,2],[3,4]], [[5,6],[7,8]])           # → [[19,22],[43,50]]
-fabric.pointwise_conv([1,2,3,4], [1,0,0,0,0,1,0,0,1,1,1,1], 4, 3)  # → [1,2,10]
+np.dot([1, 2, 3, 4], [4, 3, 2, 1])                        # → 20
+np.matmul([[1,2],[3,4]], [[5,6],[7,8]])                     # → [[19,22],[43,50]]
+np.matmul_int8([[1,2],[3,4]], [[5,6],[7,8]])                # → [[19,22],[43,50]]
+np.matvec([[1,2],[3,4]], [1, 1])                            # → [3, 7]
+np.pointwise_conv([1,2,3,4], [1,0,0,0,0,1,0,0,1,1,1,1], 4, 3)  # → [1,2,10]
 # Signal processing
-fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                   # → [6, 9, 12]
-fabric.biquad([100,200,300,400], [32768,0,0,0,0])         # → [100, 200, 300, 400]
-fabric.biquad_cascade([100,200,300], [[32768,0,0,0,0]])   # → [100, 200, 300]
-fabric.conv1d([1,2,3,4,5,6], [1,0,1,0], 2, 1, 2)         # → [...]
-fabric.conv2d_int8([1,2,3,4,5,6,7,8,9],[1,1,1,1],3,3,2,2)# → [12,16,24,28]
+np.fir([1, 2, 3, 4, 5], [1, 1, 1])                        # → [6, 9, 12]
+np.biquad([100,200,300,400], [32768,0,0,0,0])              # → [100, 200, 300, 400]
+np.biquad_cascade([100,200,300], [[32768,0,0,0,0]])        # → [100, 200, 300]
+np.conv1d([1,2,3,4,5,6], [1,0,1,0], 2, 1, 2)              # → [...]
+np.conv2d_int8([1,2,3,4,5,6,7,8,9],[1,1,1,1],3,3,2,2)     # → [12,16,24,28]
 # Pooling & activation
-fabric.relu([-5, 0, 3, -1, 7])                            # → [0, 0, 3, 0, 7]
-fabric.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)          # → [4, 9, 6, 8]
-fabric.avg_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)          # → [2, 5, 4, 5]
-fabric.clip([-10, 0, 15], -5, 5)                          # → [-5, 0, 5]
+np.relu([-5, 0, 3, -1, 7])                                 # → [0, 0, 3, 0, 7]
+np.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)               # → [4, 9, 6, 8]
+np.avg_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)               # → [2, 5, 4, 5]
+np.clip([-10, 0, 15], -5, 5)                               # → [-5, 0, 5]
 # Quantisation
-fabric.requantize([1000,-2000,300], 1, 4, 5)              # → [67, -120, 23]
-fabric.sum_squares([3, 4])                                 # → 25
-fabric.l2_norm([3, 4], 256)                               # → [153, 204]
-# Element-wise ops
-fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                   # → [4, 6, 6, 4]
-fabric.add([1, 2, 3], [10, 20, 30])                       # → [11, 22, 33]
-fabric.scale([1, 2, 3, 4], 3)                             # → [3, 6, 9, 12]
-fabric.argmax([3, 1, 9, 2])                               # → 2
-fabric.threshold([3,-1,7,0,5], 3)                         # → [0, 0, 1, 0, 1]
-fabric.vmax([1,8,3,6], [5,2,3,4])                         # → [5, 8, 3, 6]
-fabric.vmin([1,8,3,6], [5,2,3,4])                         # → [1, 2, 3, 4]
+np.requantize([1000,-2000,300], 1, 4, 5)                   # → [67, -120, 23]
+np.sum_squares([3, 4])                                      # → 25
+np.l2_norm([3, 4], 256)                                    # → [153, 204]
+# Element-wise ops (numpy-compatible names)
+np.multiply([1,2,3,4], [4,3,2,1])                          # → [4,6,6,4]  (element-wise)
+np.multiply([1,2,3,4], 3)                                   # → [3,6,9,12] (scalar broadcast)
+np.add([1, 2, 3], [10, 20, 30])                            # → [11, 22, 33]
+np.argmax([3, 1, 9, 2])                                    # → 2
+np.threshold([3,-1,7,0,5], 3)                              # → [0, 0, 1, 0, 1]
+np.maximum([1,8,3,6], [5,2,3,4])                           # → [5, 8, 3, 6]
+np.minimum([1,8,3,6], [5,2,3,4])                           # → [1, 2, 3, 4]
 ```
 
 All computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core — except `biquad_cascade` and `l2_norm` which run on scalar (see Fabric eligibility notes below).
@@ -116,48 +119,47 @@ Dot product was chosen as the first kernel for several reasons:
 ## Implemented Kernels
 
 ### Linear Algebra
-| Function | Signature | Returns | Notes |
-|----------|-----------|---------|-------|
-| `dot_product` | `(a, b)` | `int` | Max 256 elements |
-| `matvec` | `(matrix, vec)` | `list` | Max 32×32 |
-| `matmul` | `(A, B)` | `list of lists` | Int32, max 16×16 |
-| `matmul_int8` | `(A, B)` | `list of lists` | Int8 inputs, int32 accumulators; max 16×16 |
-| `pointwise_conv` | `(input, weights, in_ch, out_ch)` | `list` | 1×1 conv; max 16 channels |
+| Function | numpy equivalent | Returns | Notes |
+|----------|-----------------|---------|-------|
+| `dot` | `np.dot` | `int` | Max 256 elements |
+| `matvec` | — | `list` | Max 32×32 |
+| `matmul` | `np.matmul` | `list of lists` | Int32, max 16×16 |
+| `matmul_int8` | — | `list of lists` | Int8 inputs, int32 accumulators; max 16×16 |
+| `pointwise_conv` | — | `list` | 1×1 conv; max 16 channels |
 
 ### Signal Processing
-| Function | Signature | Returns | Notes |
-|----------|-----------|---------|-------|
-| `fir` | `(signal, coeffs)` | `list` | Max 256 elements |
-| `biquad` | `(signal, coeffs)` | `list` | Q15 coeffs `[b0,b1,b2,a1,a2]`; max 256 elements |
-| `biquad_cascade` | `(signal, sections)` | `list` | Up to 8 sections; **scalar** (see below) |
-| `conv1d` | `(signal, kernels, in_ch, out_ch, k_len)` | `list` | Multi-channel; max 8 channels |
-| `conv2d_int8` | `(input, kernel, in_h, in_w, k_h, k_w)` | `list` | Int8; max 16×16 input, 8×8 kernel |
+| Function | numpy equivalent | Returns | Notes |
+|----------|-----------------|---------|-------|
+| `fir` | — | `list` | Max 256 elements |
+| `biquad` | — | `list` | Q15 coeffs `[b0,b1,b2,a1,a2]`; max 256 elements |
+| `biquad_cascade` | — | `list` | Up to 8 sections; **scalar** (see below) |
+| `conv1d` | — | `list` | Multi-channel; max 8 channels |
+| `conv2d_int8` | — | `list` | Int8; max 16×16 input, 8×8 kernel |
 
 ### Pooling & Activation
-| Function | Signature | Returns | Notes |
-|----------|-----------|---------|-------|
-| `relu` | `(x,)` | `list` | Element-wise max(0, x); max 256 |
-| `max_pool1d` | `(signal, window)` | `list` | Non-overlapping; max 256 |
-| `avg_pool1d` | `(signal, window)` | `list` | Non-overlapping floor avg; max 256 |
-| `clip` | `(a, lo, hi)` | `list` | Clamp to [lo, hi]; max 256 |
+| Function | numpy equivalent | Returns | Notes |
+|----------|-----------------|---------|-------|
+| `relu` | — | `list` | Element-wise max(0, x); max 256 |
+| `max_pool1d` | — | `list` | Non-overlapping; max 256 |
+| `avg_pool1d` | — | `list` | Non-overlapping floor avg; max 256 |
+| `clip` | `np.clip` | `list` | Clamp to [lo, hi]; max 256 |
 
 ### Quantisation
-| Function | Signature | Returns | Notes |
-|----------|-----------|---------|-------|
-| `requantize` | `(acc, scale, shift, zero_point)` | `list` | int32 → int8; formula: `clamp(((acc*scale)>>shift)+zp, -128, 127)` |
-| `sum_squares` | `(a,)` | `int` | Safe for Q8 inputs up to 256 elements |
-| `l2_norm` | `(a, scale)` | `list` | Integer approx; **scalar** (see below) |
+| Function | numpy equivalent | Returns | Notes |
+|----------|-----------------|---------|-------|
+| `requantize` | — | `list` | int32 → int8; formula: `clamp(((acc*scale)>>shift)+zp, -128, 127)` |
+| `sum_squares` | — | `int` | Safe for Q8 inputs up to 256 elements |
+| `l2_norm` | — | `list` | Integer approx; **scalar** (see below) |
 
 ### Element-wise Ops
-| Function | Signature | Returns | Notes |
-|----------|-----------|---------|-------|
-| `mul` | `(a, b)` | `list` | Element-wise multiply; max 256 |
-| `add` | `(a, b)` | `list` | Element-wise add; max 256 |
-| `scale` | `(a, scalar)` | `list` | Multiply by scalar; max 256 |
-| `argmax` | `(scores,)` | `int` | Index of max; max 256 |
-| `threshold` | `(a, thresh)` | `list` | 1 if a[i] > thresh else 0; max 256 |
-| `vmax` | `(a, b)` | `list` | Element-wise max; max 256 |
-| `vmin` | `(a, b)` | `list` | Element-wise min; max 256 |
+| Function | numpy equivalent | Returns | Notes |
+|----------|-----------------|---------|-------|
+| `multiply` | `np.multiply` | `list` | List×list or list×scalar broadcast; max 256 |
+| `add` | `np.add` | `list` | Element-wise add; max 256 |
+| `argmax` | `np.argmax` | `int` | Index of max; max 256 |
+| `threshold` | — | `list` | 1 if a[i] > thresh else 0; max 256 |
+| `maximum` | `np.maximum` | `list` | Element-wise max; max 256 |
+| `minimum` | `np.minimum` | `list` | Element-wise min; max 256 |
 
 All kernels operate on fixed-point integers. Floats require explicit quantisation (`int(x * scale)`) before passing in.
 
