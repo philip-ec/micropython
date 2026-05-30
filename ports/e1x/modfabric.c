@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "py/obj.h"
 #include "py/runtime.h"
+#include <eff/mtimer.h>
 
 #define MAX_N        256
 #define MAX_ROWS      32
@@ -911,8 +912,15 @@ static mp_obj_t fabric_fir(mp_obj_t signal_obj, mp_obj_t coeffs_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_fir_obj, fabric_fir);
 
+// fabric.ticks_us() → microseconds since boot (wraps at 2^32)
+static mp_obj_t fabric_ticks_us(void) {
+    return mp_obj_new_int_from_uint((mp_uint_t)eff_mtimer_uptime_us());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(fabric_ticks_us_obj, fabric_ticks_us);
+
 static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fabric) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_us), MP_ROM_PTR(&fabric_ticks_us_obj) },
     { MP_ROM_QSTR(MP_QSTR_matmul_int8_rq), MP_ROM_PTR(&fabric_matmul_int8_rq_obj) },
     { MP_ROM_QSTR(MP_QSTR_conv2d_int8_rq), MP_ROM_PTR(&fabric_conv2d_int8_rq_obj) },
     { MP_ROM_QSTR(MP_QSTR_pointwise_conv_rq), MP_ROM_PTR(&fabric_pointwise_conv_rq_obj) },
