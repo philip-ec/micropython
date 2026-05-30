@@ -189,59 +189,81 @@ All kernels operate on fixed-point integers. Floats require explicit quantisatio
 
 ---
 
-## Frozen Weights
+## Frozen Weights & MNIST Demo
 
-For real inference, weights need to live in flash — not typed as Python lists. `weights_gen.py` generates a `modweights.c` file that freezes model weights as `const int8_t` arrays in `.rodata` and exposes them as a `weights` Python module.
+For real inference, weights live in flash — not typed as Python lists. `weights_gen.py` generates a `modweights.c` file that freezes model weights as `const int8_t` arrays in `.rodata` and exposes them as a `weights` Python module.
 
-### Workflow
+### MNIST result
+
+A 784→128→10 int8 MLP trained with `train_mnist.py` and frozen into firmware achieves **97.3% test accuracy** — no degradation from float (97.3% float). Inference runs from the REPL:
+
+```python
+import weights, fabric
+
+# x: 28×28 MNIST digit as 784 int8 values (pixel − 128, scaled to [−127, 127])
+h   = weights.fc1(x, 1, 12, 0)   # 784→128 matmul + bias + requantize
+h   = fabric.relu(h)               # ReLU activation (Fabric-accelerated)
+out = weights.fc2(h, 1, 11, 0)    # 128→10  matmul + bias + requantize
+print(fabric.argmax(out))          # predicted digit class
+```
+
+### Training & export workflow
 
 ```bash
-# 1. Export quantized weights to JSON
-python3 export_weights.py my_model.tflite > my_model.json
+# 1. Train and quantize (numpy + Keras for data loading, no TFLite needed)
+python3 train_mnist.py            # → mnist_weights.json
 
-# 2. Generate the C file
-python3 weights_gen.py my_model.json
+# 2. Freeze weights into C
+python3 weights_gen.py mnist_weights.json   # → modweights.c
 
 # 3. Build and flash
 make && eff-flash build/firmware.hex sram -p /dev/ttyACM0
 ```
 
+`train_mnist.py` uses data-driven calibration: it measures actual activation ranges on the test set to compute `(scale, shift)` rather than using theoretical maximums. This is why quantization accuracy matches float.
+
 ### JSON format
 
 ```json
 {
-  "fc1": { "rows": 128, "cols": 784, "weights": [[...], ...] },
-  "fc2": { "rows": 10,  "cols": 128, "weights": [[...], ...] }
+  "fc1": {
+    "rows": 128, "cols": 784,
+    "weights": [[...], ...],
+    "bias": [...],
+    "scale": 1, "shift": 12, "zero_point": 0
+  },
+  "fc2": {
+    "rows": 10, "cols": 128,
+    "weights": [[...], ...],
+    "bias": [...],
+    "scale": 1, "shift": 11, "zero_point": 0
+  }
 }
 ```
 
-Values must be in `[-128, 127]` (int8). The Makefile auto-includes `modweights.c` if it exists.
+Weight values in `[-128, 127]` (int8). Bias values in int32 pre-scaled accumulator units. The Makefile auto-includes `modweights.c` if present.
 
-### Python API
+### How it works
 
-Each layer becomes a function `weights.NAME(x, scale, shift, zero_point) -> list`:
+Each layer becomes `weights.NAME(x, scale, shift, zero_point) -> list`. The generated C glue:
+1. Unboxes the small input activation (e.g. 784 or 128 elements) from Python
+2. Computes `acc[i] = dot(W_row_i, x) + bias[i]` entirely in C (frozen weight pointer, no heap)
+3. Requantizes: `out[i] = clamp((acc[i] * scale) >> shift + zp, -128, 127)`
+4. Boxes only the small output activation back to Python
 
-```python
-import weights, fabric
-
-x = sensor_input   # list of int8 values
-
-# MLP forward pass — weights never leave flash, never boxed as Python objects
-x = weights.fc1(x, scale=1, shift=7, zero_point=0)   # 784→128, fused matmul+rq
-x = fabric.relu(x)
-x = weights.fc2(x, scale=1, shift=7, zero_point=0)   # 128→10, fused matmul+rq
-print("class:", fabric.argmax(x))
-```
-
-The key property: weight matrices stay as C pointers into `.rodata`. Only the small input and output activations (e.g. 128 elements) pass through Python. No heap pressure from weights regardless of model size.
+Weight matrices stay as `const int8_t*` pointers into `.rodata`. No matter how large the model, only the activations (small) pass through Python heap.
 
 ### MobileNet depthwise-separable block
 
 ```python
-x = fabric.conv2d_int8_rq(x, dw_w, H, W, kH, kW, s, sh, zp)    # depthwise
-x = weights.pw(x, s, sh, zp)                                      # pointwise (frozen)
+x = fabric.conv2d_int8_rq(x, dw_w, H, W, kH, kW, s, sh, zp)  # depthwise
+x = weights.pw(x, s, sh, zp)                                    # pointwise (frozen)
 x = fabric.relu(x)
 ```
+
+### Note on built-in functions
+
+At `MICROPY_CONFIG_ROM_LEVEL_MINIMUM`, Python's `max()` and `min()` builtins are disabled. Use `fabric.relu(h)` instead of `[max(0, v) for v in h]` for activation functions.
 
 ### Fabric Eligibility Notes
 
