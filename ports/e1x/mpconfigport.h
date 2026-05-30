@@ -7,6 +7,7 @@
 #define MICROPY_ENABLE_GC               (1)
 #define MICROPY_HELPER_REPL             (1)
 #define MICROPY_PY_BUILTINS_MIN_MAX     (1)
+#define MICROPY_PY_MATH                 (1)
 #define MICROPY_ENABLE_EXTERNAL_IMPORT  (0)
 #define MICROPY_ALLOC_PATH_MAX          (64)
 #define MICROPY_ALLOC_PARSE_CHUNK_INIT  (16)

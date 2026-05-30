@@ -2,6 +2,7 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 #include <eff/mtimer.h>
+#include "fft.h"
 
 #define MAX_N        256
 #define MAX_ROWS      32
@@ -847,26 +848,21 @@ static mp_obj_t fabric_matvec(mp_obj_t mat_obj, mp_obj_t vec_obj) {
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_matvec_obj, fabric_matvec);
 
 
-// fabric.argmax(scores) → index of maximum value
+// fabric.argmax(scores) → index of maximum value (no size limit — scans inline)
 static mp_obj_t fabric_argmax(mp_obj_t a_obj) {
     size_t len;
     mp_obj_t *items;
     mp_obj_get_array(a_obj, &len, &items);
-
     if (len == 0) {
         mp_raise_ValueError(MP_ERROR_TEXT("list is empty"));
     }
-    if (len > MAX_N) {
-        mp_raise_ValueError(MP_ERROR_TEXT("list too long (max 256)"));
+    int32_t best_idx = 0;
+    int32_t best_val = mp_obj_get_int(items[0]);
+    for (size_t i = 1; i < len; i++) {
+        int32_t v = mp_obj_get_int(items[i]);
+        if (v > best_val) { best_val = v; best_idx = (int32_t)i; }
     }
-
-    int32_t buf[MAX_N];
-    for (size_t i = 0; i < len; i++) {
-        buf[i] = mp_obj_get_int(items[i]);
-    }
-
-    int32_t idx = argmax(buf, (int32_t)len);
-    return mp_obj_new_int(idx);
+    return mp_obj_new_int(best_idx);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(fabric_argmax_obj, fabric_argmax);
 
@@ -912,6 +908,136 @@ static mp_obj_t fabric_fir(mp_obj_t signal_obj, mp_obj_t coeffs_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_fir_obj, fabric_fir);
 
+
+// fabric.fft(signal) → list of 4096 [real, imag] pairs (Q15 int16)
+// signal: list of 4096 int16 real values (imaginary part assumed 0)
+// Uses the radix-4 FFT kernel from the E1x SDK example.
+static mp_obj_t fabric_fft(mp_obj_t signal_obj) {
+    size_t sig_len;
+    mp_obj_t *sig_items;
+    mp_obj_get_array(signal_obj, &sig_len, &sig_items);
+    if (sig_len != FFT_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal must have 4096 elements"));
+    }
+    static fft_cpx src_buf[FFT_SIZE];
+    static fft_cpx dst_buf[FFT_SIZE];
+    for (size_t i = 0; i < FFT_SIZE; i++) {
+        src_buf[i].r = (int16_t)mp_obj_get_int(sig_items[i]);
+        src_buf[i].i = 0;
+    }
+    fft4(src_buf, dst_buf);
+    mp_obj_t result = mp_obj_new_list(FFT_SIZE, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < FFT_SIZE; i++) {
+        mp_obj_t pair = mp_obj_new_list(2, NULL);
+        mp_obj_list_t *pair_list = MP_OBJ_TO_PTR(pair);
+        pair_list->items[0] = mp_obj_new_int(dst_buf[i].r);
+        pair_list->items[1] = mp_obj_new_int(dst_buf[i].i);
+        result_list->items[i] = pair;
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(fabric_fft_obj, fabric_fft);
+
+// fabric.fft_power(signal) → list of 4096 int32 power values (r²+i²)
+// Useful for spectrum analysis — avoids boxing complex pairs.
+static mp_obj_t fabric_fft_power(mp_obj_t signal_obj) {
+    size_t sig_len;
+    mp_obj_t *sig_items;
+    mp_obj_get_array(signal_obj, &sig_len, &sig_items);
+    if (sig_len != FFT_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal must have 4096 elements"));
+    }
+    static fft_cpx src_buf[FFT_SIZE];
+    static fft_cpx dst_buf[FFT_SIZE];
+    for (size_t i = 0; i < FFT_SIZE; i++) {
+        src_buf[i].r = (int16_t)mp_obj_get_int(sig_items[i]);
+        src_buf[i].i = 0;
+    }
+    fft4(src_buf, dst_buf);
+    mp_obj_t result = mp_obj_new_list(FFT_SIZE, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < FFT_SIZE; i++) {
+        int32_t r = dst_buf[i].r, im = dst_buf[i].i;
+        result_list->items[i] = mp_obj_new_int(r*r + im*im);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(fabric_fft_power_obj, fabric_fft_power);
+
+// fabric.softmax(scores, scale=256) → list of probabilities × scale (int)
+// scores: list of int values (e.g. int8 logits from classification)
+// scale: output scale factor (default 256 gives 8-bit probabilities)
+// Uses Q15 fixed-point exp via lookup table; runs on scalar core.
+static const int32_t _exp_lut[256] = {
+    // exp(-k/8) * 32768 for k = 0..255, clamped to int32
+    // k=0: exp(0)=1.0 → 32768
+    32768,30338,28087,26001,24074,22295,20655,19144,17755,16482,
+    15262,14161,13128,12160,11252,10408, 9631, 8917, 8264, 7670,
+     7132, 6644, 6202, 5804, 5444, 5120, 4826, 4558, 4313, 4087,
+     3879, 3685, 3504, 3334, 3175, 3024, 2881, 2746, 2618, 2497,
+     2382, 2272, 2168, 2069, 1974, 1885, 1799, 1717, 1639, 1565,
+     1494, 1427, 1362, 1300, 1241, 1185, 1131, 1080, 1031,  984,
+      939,  897,  856,  816,  779,  744,  710,  677,  646,  617,
+      588,  562,  536,  512,  488,  466,  445,  424,  405,  387,
+      369,  352,  336,  320,  306,  292,  278,  266,  254,  242,
+      231,  220,  210,  201,  191,  183,  174,  166,  158,  151,
+      144,  138,  131,  125,  120,  114,  109,  104,   99,   94,
+       90,   86,   82,   78,   75,   71,   68,   65,   62,   59,
+       56,   54,   51,   49,   47,   44,   42,   40,   38,   37,
+       35,   33,   32,   30,   29,   27,   26,   25,   24,   22,
+       21,   20,   19,   18,   18,   17,   16,   15,   14,   14,
+       13,   13,   12,   11,   11,   10,   10,    9,    9,    9,
+        8,    8,    7,    7,    7,    6,    6,    6,    5,    5,
+        5,    5,    4,    4,    4,    4,    4,    3,    3,    3,
+        3,    3,    3,    2,    2,    2,    2,    2,    2,    2,
+        2,    2,    1,    1,    1,    1,    1,    1,    1,    1,
+        1,    1,    1,    1,    1,    1,    1,    1,    0,    0,
+        0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+        0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+        0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+        0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+        0,    0,    0,    0,    0,    0
+};
+
+static mp_obj_t fabric_softmax(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    size_t len;
+    mp_obj_t *items;
+    mp_obj_get_array(args[0], &len, &items);
+    if (len == 0 || len > MAX_N) {
+        mp_raise_ValueError(MP_ERROR_TEXT("list length must be 1..256"));
+    }
+    int32_t scale = (n_args > 1) ? mp_obj_get_int(args[1]) : 256;
+
+    // find max for numerical stability
+    int32_t max_val = mp_obj_get_int(items[0]);
+    for (size_t i = 1; i < len; i++) {
+        int32_t v = mp_obj_get_int(items[i]);
+        if (v > max_val) max_val = v;
+    }
+
+    // compute exp(x - max) using LUT: index = clamp((max - x) * 8, 0, 255)
+    int32_t exp_vals[MAX_N];
+    int32_t sum = 0;
+    for (size_t i = 0; i < len; i++) {
+        int32_t diff = (max_val - mp_obj_get_int(items[i])) * 8;
+        int32_t idx = diff < 0 ? 0 : diff > 255 ? 255 : diff;
+        exp_vals[i] = _exp_lut[idx];
+        sum += exp_vals[i];
+    }
+
+    // normalise: out[i] = exp_vals[i] * scale / sum
+    mp_obj_t result = mp_obj_new_list(len, NULL);
+    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
+    for (size_t i = 0; i < len; i++) {
+        int32_t prob = (sum > 0) ? (exp_vals[i] * scale) / sum : 0;
+        result_list->items[i] = mp_obj_new_int(prob);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(fabric_softmax_obj, 1, 2, fabric_softmax);
+
 // fabric.ticks_us() → microseconds since boot (wraps at 2^32)
 static mp_obj_t fabric_ticks_us(void) {
     return mp_obj_new_int_from_uint((mp_uint_t)eff_mtimer_uptime_us());
@@ -921,6 +1047,9 @@ static MP_DEFINE_CONST_FUN_OBJ_0(fabric_ticks_us_obj, fabric_ticks_us);
 static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_fabric) },
     { MP_ROM_QSTR(MP_QSTR_ticks_us), MP_ROM_PTR(&fabric_ticks_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fft), MP_ROM_PTR(&fabric_fft_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fft_power), MP_ROM_PTR(&fabric_fft_power_obj) },
+    { MP_ROM_QSTR(MP_QSTR_softmax), MP_ROM_PTR(&fabric_softmax_obj) },
     { MP_ROM_QSTR(MP_QSTR_matmul_int8_rq), MP_ROM_PTR(&fabric_matmul_int8_rq_obj) },
     { MP_ROM_QSTR(MP_QSTR_conv2d_int8_rq), MP_ROM_PTR(&fabric_conv2d_int8_rq_obj) },
     { MP_ROM_QSTR(MP_QSTR_pointwise_conv_rq), MP_ROM_PTR(&fabric_pointwise_conv_rq_obj) },

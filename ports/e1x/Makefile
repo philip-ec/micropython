@@ -72,6 +72,13 @@ SRC_QSTR += shared/readline/readline.c shared/runtime/pyexec.c modfabric.c
 OBJ += $(PY_CORE_O)
 OBJ += $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
 
+# fft.c compiled with Fabric flags (contains __efficient__ kernels from SDK example)
+$(BUILD)/fft.o: fft.c fft.h fft_twiddles.h
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(CFLAGS) -DDEFINE_TWIDDLES -c -o $@ $<
+
+OBJ += $(BUILD)/fft.o
+
 # fabric_kernel.c compiled with Fabric flags so __efficient__ offloads to hardware
 $(BUILD)/fabric_kernel.o: fabric_kernel.c
 	@mkdir -p $(dir $@)
