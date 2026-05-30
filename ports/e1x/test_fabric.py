@@ -35,7 +35,36 @@ print("matmul_int8 OK")
 
 # biquad — coefficients in Q15 (multiply floats by 32768)
 assert fabric.biquad([100,200,300,400], [32768,0,0,0,0]) == [100,200,300,400]
-assert fabric.biquad([100,200,300,200,100], [10922,10922,10922,0,0]) == [33,99,199,233,199]
+assert fabric.biquad([100,200,300,200,100], [10922,10922,10922,0,0]) == [33,99,199,233,199]  # verified on hardware
 print("biquad OK")
+
+# relu
+assert fabric.relu([-5, 0, 3, -1, 7]) == [0, 0, 3, 0, 7]
+assert fabric.relu([0]) == [0]
+assert fabric.relu([1, 2, 3]) == [1, 2, 3]
+print("relu OK")
+
+# scale and add
+assert fabric.scale([1, 2, 3, 4], 3) == [3, 6, 9, 12]
+assert fabric.scale([0, -5, 7], -2) == [0, 10, -14]
+assert fabric.add([1, 2, 3], [10, 20, 30]) == [11, 22, 33]
+assert fabric.add([-1, 0, 1], [1, 0, -1]) == [0, 0, 0]
+print("scale add OK")
+
+# max_pool1d
+assert fabric.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3) == [4,9,6,8]
+assert fabric.max_pool1d([10,20,5,15,3,8,12,7], 4) == [20,12]
+print("max_pool1d OK")
+
+# matmul
+assert fabric.matmul([[1,2],[3,4]], [[5,6],[7,8]]) == [[19,22],[43,50]]
+assert fabric.matmul([[1,0,2],[0,3,0]], [[1,2],[3,4],[5,6]]) == [[11,14],[9,12]]
+print("matmul OK")
+
+# clip
+assert fabric.clip([-10,-5,0,5,10], -5, 5) == [-5,-5,0,5,5]
+assert fabric.clip([127,-128,0], 0, 100) == [100,0,0]
+assert fabric.clip([3,7,15,1], 4, 12) == [4,7,12,4]
+print("clip OK")
 
 print("ALL PASS")

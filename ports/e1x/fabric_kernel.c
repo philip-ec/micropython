@@ -39,6 +39,65 @@ void biquad(const int32_t *x, int32_t *y, int32_t n,
 }
 
 __efficient__
+void relu(const int32_t *x, int32_t *out, int32_t n) {
+    for (int32_t i = 0; i < n; i++) {
+        out[i] = x[i] > 0 ? x[i] : 0;
+    }
+}
+
+__efficient__
+void vec_scale(const int32_t *a, int32_t scalar, int32_t *out, int32_t n) {
+    for (int32_t i = 0; i < n; i++) {
+        out[i] = a[i] * scalar;
+    }
+}
+
+__efficient__
+void vec_add(const int32_t *a, const int32_t *b, int32_t *out, int32_t n) {
+    for (int32_t i = 0; i < n; i++) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+__efficient__
+void max_pool1d(const int32_t *signal, int32_t *out, int32_t n, int32_t w) {
+    int32_t out_len = n / w;
+    for (int32_t i = 0; i < out_len; i++) {
+        int32_t base = i * w;
+        int32_t mx = signal[base];
+        for (int32_t j = 1; j < w; j++) {
+            int32_t v = signal[base + j];
+            if (v > mx) mx = v;
+        }
+        out[i] = mx;
+    }
+}
+
+__efficient__
+void matmul(const int32_t *a, const int32_t *b, int32_t *out,
+            int32_t M, int32_t K, int32_t N) {
+    for (int32_t i = 0; i < M; i++) {
+        for (int32_t j = 0; j < N; j++) {
+            int32_t sum = 0;
+            for (int32_t k = 0; k < K; k++) {
+                sum += a[i * K + k] * b[k * N + j];
+            }
+            out[i * N + j] = sum;
+        }
+    }
+}
+
+__efficient__
+void clip(const int32_t *a, int32_t *out, int32_t n, int32_t lo, int32_t hi) {
+    for (int32_t i = 0; i < n; i++) {
+        int32_t v = a[i];
+        if (v < lo) v = lo;
+        if (v > hi) v = hi;
+        out[i] = v;
+    }
+}
+
+__efficient__
 void matmul_int8(const int8_t *a, const int8_t *b, int32_t *out,
                  int32_t M, int32_t K, int32_t N) {
     for (int32_t i = 0; i < M; i++) {
