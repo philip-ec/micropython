@@ -62,6 +62,11 @@ SRC_C += modweights.c
 SRC_QSTR += modweights.c
 endif
 
+ifneq ($(wildcard $(TOP)/ports/e1x/modtestdata.c),)
+SRC_C += modtestdata.c
+SRC_QSTR += modtestdata.c
+endif
+
 SRC_QSTR += shared/readline/readline.c shared/runtime/pyexec.c modfabric.c
 
 OBJ += $(PY_CORE_O)

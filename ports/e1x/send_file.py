@@ -24,17 +24,19 @@ with serial.Serial(PORT, BAUD, timeout=2) as ser:
     ser.write(b"\x05")
     time.sleep(0.1)
 
-    # send file content
+    # send file content, draining echo while sending to avoid buffer overflow
     for line in code.splitlines():
         ser.write((line + "\n").encode())
-        time.sleep(0.1)
+        time.sleep(0.2)
+        # drain echo as we go — prevents OS receive buffer overflow on long files
+        ser.read_all()
 
-    # execute
+    # execute — wait for execution before reading
     ser.write(b"\x04")
-    time.sleep(0.5)
+    time.sleep(5)
 
-    # read and print output — wait up to 30s, reset on each new chunk
-    deadline = time.time() + 30
+    # read and print output — wait up to 60s, reset on each new chunk
+    deadline = time.time() + 60
     while time.time() < deadline:
         data = ser.read_all()
         if data:
