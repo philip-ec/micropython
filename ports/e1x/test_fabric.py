@@ -67,6 +67,25 @@ assert fabric.clip([127,-128,0], 0, 100) == [100,0,0]
 assert fabric.clip([3,7,15,1], 4, 12) == [4,7,12,4]
 print("clip OK")
 
+# fused _rq variants
+# matmul_int8_rq: [[19,22],[43,50]] with scale=1,shift=4,zp=0 → [[1,1],[2,3]]
+r = fabric.matmul_int8_rq([[1,2],[3,4]], [[5,6],[7,8]], 1, 4, 0)
+assert r == [[1,1],[2,3]]
+# identity: scale=1,shift=0,zp=0 → same as matmul_int8
+r = fabric.matmul_int8_rq([[1,2],[3,4]], [[1,0],[0,1]], 1, 0, 0)
+assert r == [[1,2],[3,4]]
+print("matmul_int8_rq OK")
+
+# conv2d_int8_rq: [12,16,24,28] with scale=1,shift=2,zp=0 → [3,4,6,7]
+r = fabric.conv2d_int8_rq([1,2,3,4,5,6,7,8,9],[1,1,1,1],3,3,2,2,1,2,0)
+assert r == [3,4,6,7]
+print("conv2d_int8_rq OK")
+
+# pointwise_conv_rq: [1,2,10] with scale=1,shift=1,zp=0 → [0,1,5]
+r = fabric.pointwise_conv_rq([1,2,3,4],[1,0,0,0,0,1,0,0,1,1,1,1],4,3,1,1,0)
+assert r == [0,1,5]
+print("pointwise_conv_rq OK")
+
 # requantize
 r = fabric.requantize([1000, -2000, 300, 0], 1, 4, 5)
 assert r == [67, -120, 23, 5]

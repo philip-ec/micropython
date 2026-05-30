@@ -27,7 +27,7 @@ with serial.Serial(PORT, BAUD, timeout=2) as ser:
     # send file content
     for line in code.splitlines():
         ser.write((line + "\n").encode())
-        time.sleep(0.05)
+        time.sleep(0.1)
 
     # execute
     ser.write(b"\x04")

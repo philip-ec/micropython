@@ -2,6 +2,63 @@
 #include <eff.h>
 
 __efficient__
+void matmul_int8_rq(const int8_t *a, const int8_t *b, int8_t *out,
+                    int32_t M, int32_t K, int32_t N,
+                    int32_t scale, int32_t shift, int32_t zero_point) {
+    for (int32_t i = 0; i < M; i++) {
+        for (int32_t j = 0; j < N; j++) {
+            int32_t acc = 0;
+            for (int32_t k = 0; k < K; k++) {
+                acc += (int32_t)a[i*K+k] * (int32_t)b[k*N+j];
+            }
+            int32_t v = ((acc * scale) >> shift) + zero_point;
+            if (v < -128) v = -128;
+            if (v >  127) v =  127;
+            out[i*N+j] = (int8_t)v;
+        }
+    }
+}
+
+__efficient__
+void conv2d_int8_rq(const int8_t *input, const int8_t *kernel, int8_t *out,
+                    int32_t in_h, int32_t in_w, int32_t k_h, int32_t k_w,
+                    int32_t scale, int32_t shift, int32_t zero_point) {
+    int32_t out_h = in_h - k_h + 1;
+    int32_t out_w = in_w - k_w + 1;
+    for (int32_t oy = 0; oy < out_h; oy++) {
+        for (int32_t ox = 0; ox < out_w; ox++) {
+            int32_t acc = 0;
+            for (int32_t ky = 0; ky < k_h; ky++) {
+                for (int32_t kx = 0; kx < k_w; kx++) {
+                    acc += (int32_t)input[(oy+ky)*in_w+(ox+kx)]
+                         * (int32_t)kernel[ky*k_w+kx];
+                }
+            }
+            int32_t v = ((acc * scale) >> shift) + zero_point;
+            if (v < -128) v = -128;
+            if (v >  127) v =  127;
+            out[oy*out_w+ox] = (int8_t)v;
+        }
+    }
+}
+
+__efficient__
+void pointwise_conv_rq(const int8_t *input, const int8_t *weights, int8_t *out,
+                       int32_t in_ch, int32_t out_ch,
+                       int32_t scale, int32_t shift, int32_t zero_point) {
+    for (int32_t i = 0; i < out_ch; i++) {
+        int32_t acc = 0;
+        for (int32_t j = 0; j < in_ch; j++) {
+            acc += (int32_t)weights[i*in_ch+j] * (int32_t)input[j];
+        }
+        int32_t v = ((acc * scale) >> shift) + zero_point;
+        if (v < -128) v = -128;
+        if (v >  127) v =  127;
+        out[i] = (int8_t)v;
+    }
+}
+
+__efficient__
 int32_t dot_product(const int32_t *a, const int32_t *b, int32_t n) {
     int32_t sum = 0;
     for (int32_t i = 0; i < n; i++) {
