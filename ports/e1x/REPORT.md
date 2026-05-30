@@ -5,20 +5,26 @@
 
 ## Overview
 
-We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with seven hardware-accelerated primitives:
+We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with 13 hardware-accelerated primitives:
 
 ```python
 import fabric
 fabric.dot_product([1, 2, 3, 4], [4, 3, 2, 1])        # → 20
 fabric.matvec([[1,2],[3,4]], [1, 1])                    # → [3, 7]
-fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                 # → [6, 9, 12]
-fabric.argmax([3, 1, 9, 2])                             # → 2
-fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                 # → [4, 6, 6, 4]
+fabric.matmul([[1,2],[3,4]], [[5,6],[7,8]])             # → [[19,22],[43,50]]
 fabric.matmul_int8([[1,2],[3,4]], [[5,6],[7,8]])        # → [[19,22],[43,50]]
+fabric.fir([1, 2, 3, 4, 5], [1, 1, 1])                 # → [6, 9, 12]
 fabric.biquad([100,200,300,400], [32768,0,0,0,0])      # → [100, 200, 300, 400]
+fabric.argmax([3, 1, 9, 2])                             # → 2
+fabric.relu([-5, 0, 3, -1, 7])                         # → [0, 0, 3, 0, 7]
+fabric.mul([1, 2, 3, 4], [4, 3, 2, 1])                 # → [4, 6, 6, 4]
+fabric.add([1, 2, 3], [10, 20, 30])                    # → [11, 22, 33]
+fabric.scale([1, 2, 3, 4], 3)                          # → [3, 6, 9, 12]
+fabric.clip([-10, 0, 15], -5, 5)                       # → [-5, 0, 5]
+fabric.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)       # → [4, 9, 6, 8]
 ```
 
-All seven computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
+All 13 computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core.
 
 ---
 
@@ -98,10 +104,15 @@ Dot product was chosen as the first kernel for several reasons:
 | `dot_product` | `(a, b)` | `int` | Sum of element-wise products; max 256 elements |
 | `matvec` | `(matrix, vec)` | `list` | Matrix-vector multiply; max 32×32 |
 | `fir` | `(signal, coeffs)` | `list` | Sliding-window FIR filter; max 256 elements |
-| `argmax` | `(scores,)` | `int` | Index of maximum value; max 256 elements |
-| `mul` | `(a, b)` | `list` | Element-wise multiply; max 256 elements |
-| `matmul_int8` | `(A, B)` | `list of lists` | Int8 matrix multiply, int32 accumulators; max 16×16 |
 | `biquad` | `(signal, coeffs)` | `list` | Direct Form I biquad IIR; coeffs `[b0,b1,b2,a1,a2]` in Q15 |
+| `argmax` | `(scores,)` | `int` | Index of maximum value; max 256 elements |
+| `relu` | `(x,)` | `list` | Element-wise max(0, x); max 256 elements |
+| `mul` | `(a, b)` | `list` | Element-wise multiply; max 256 elements |
+| `add` | `(a, b)` | `list` | Element-wise add; max 256 elements |
+| `scale` | `(a, scalar)` | `list` | Multiply every element by scalar; max 256 elements |
+| `clip` | `(a, lo, hi)` | `list` | Clamp each element to [lo, hi]; max 256 elements |
+| `max_pool1d` | `(signal, window)` | `list` | Non-overlapping window max; max 256 elements |
+| `matmul_int8` | `(A, B)` | `list of lists` | Int8 matrix multiply, int32 accumulators; max 16×16 |
 
 All kernels operate on fixed-point integers. Input values must be Python ints; floats require explicit quantisation (`int(x * scale)`) before passing in.
 
