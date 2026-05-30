@@ -5,7 +5,7 @@
 
 ## Overview
 
-We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with 24 hardware-accelerated primitives covering linear algebra, signal processing, and neural network inference:
+We ported MicroPython to the E1x evaluation kit — a RISC-V 32-bit bare-metal target — and wired Fabric-accelerated fixed-point kernels into it as a Python-callable module. The result is a live REPL with 30+ hardware-accelerated primitives covering linear algebra, signal processing, and neural network inference.
 
 The module namespace mirrors numpy/ulab — existing ulab code becomes a one-line import swap:
 
@@ -24,6 +24,8 @@ np.biquad([100,200,300,400], [32768,0,0,0,0])              # → [100, 200, 300,
 np.biquad_cascade([100,200,300], [[32768,0,0,0,0]])        # → [100, 200, 300]
 np.conv1d([1,2,3,4,5,6], [1,0,1,0], 2, 1, 2)              # → [...]
 np.conv2d_int8([1,2,3,4,5,6,7,8,9],[1,1,1,1],3,3,2,2)     # → [12,16,24,28]
+np.fft(signal)           # 4096-point Q15 FFT → list of [r,i] pairs  ⚠ see below
+np.fft_power(signal)     # 4096-point FFT → list of r²+i² power values  ⚠ see below
 # Pooling & activation
 np.relu([-5, 0, 3, -1, 7])                                 # → [0, 0, 3, 0, 7]
 np.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3)               # → [4, 9, 6, 8]
@@ -33,17 +35,19 @@ np.clip([-10, 0, 15], -5, 5)                               # → [-5, 0, 5]
 np.requantize([1000,-2000,300], 1, 4, 5)                   # → [67, -120, 23]
 np.sum_squares([3, 4])                                      # → 25
 np.l2_norm([3, 4], 256)                                    # → [153, 204]
+np.softmax([-1,-5,1,4,-4,0,-12,12,0,1], 1000)             # → [3,0,7,22,1,5,0,947,5,7]
 # Element-wise ops (numpy-compatible names)
 np.multiply([1,2,3,4], [4,3,2,1])                          # → [4,6,6,4]  (element-wise)
 np.multiply([1,2,3,4], 3)                                   # → [3,6,9,12] (scalar broadcast)
 np.add([1, 2, 3], [10, 20, 30])                            # → [11, 22, 33]
-np.argmax([3, 1, 9, 2])                                    # → 2
+np.argmax([3, 1, 9, 2])                                    # → 2  (no size limit)
 np.threshold([3,-1,7,0,5], 3)                              # → [0, 0, 1, 0, 1]
 np.maximum([1,8,3,6], [5,2,3,4])                           # → [5, 8, 3, 6]
 np.minimum([1,8,3,6], [5,2,3,4])                           # → [1, 2, 3, 4]
+np.ticks_us()                                              # → microseconds since boot
 ```
 
-All computations run on the E1x Fabric hardware accelerator, not the scalar RISC-V core — except `biquad_cascade` and `l2_norm` which run on scalar (see Fabric eligibility notes below).
+Most computations run on the Fabric. Exceptions: `biquad_cascade`, `l2_norm`, `softmax`, `fft`/`fft_power` — see Fabric eligibility notes below.
 
 ---
 
@@ -138,6 +142,8 @@ Dot product was chosen as the first kernel for several reasons:
 | `conv1d` | — | `list` | Multi-channel; max 8 channels |
 | `conv2d_int8` | — | `list` | Int8 inputs, int32 out; max 16×16 input, 8×8 kernel |
 | `conv2d_int8_rq` | — | `list` | Fused conv2d + requantize → int8; max 16×16 input, 8×8 kernel |
+| `fft` | `np.fft.fft` | `list of [r,i]` | 4096-point radix-4 Q15; ⚠ output incorrect — see FFT note |
+| `fft_power` | — | `list` | 4096-point FFT power (r²+i²); ⚠ output incorrect — see FFT note |
 
 ### Pooling & Activation
 | Function | numpy equivalent | Returns | Notes |
@@ -147,22 +153,24 @@ Dot product was chosen as the first kernel for several reasons:
 | `avg_pool1d` | — | `list` | Non-overlapping floor avg; max 256 |
 | `clip` | `np.clip` | `list` | Clamp to [lo, hi]; max 256 |
 
-### Quantisation
+### Quantisation & Probability
 | Function | numpy equivalent | Returns | Notes |
 |----------|-----------------|---------|-------|
 | `requantize` | — | `list` | int32 → int8; `clamp(((acc*scale)>>shift)+zp, -128, 127)` |
 | `sum_squares` | — | `int` | Safe for Q8 inputs up to 256 elements |
 | `l2_norm` | — | `list` | Integer approx; **scalar** (see below) |
+| `softmax` | `scipy.special.softmax` | `list` | Fixed-point exp LUT; `softmax(scores, scale=256)`; **scalar** |
 
-### Element-wise Ops
+### Element-wise Ops & Utilities
 | Function | numpy equivalent | Returns | Notes |
 |----------|-----------------|---------|-------|
 | `multiply` | `np.multiply` | `list` | List×list or list×scalar broadcast; max 256 |
 | `add` | `np.add` | `list` | Element-wise add; max 256 |
-| `argmax` | `np.argmax` | `int` | Index of max; max 256 |
+| `argmax` | `np.argmax` | `int` | Index of max; **no size limit** |
 | `threshold` | — | `list` | 1 if a[i] > thresh else 0; max 256 |
 | `maximum` | `np.maximum` | `list` | Element-wise max; max 256 |
 | `minimum` | `np.minimum` | `list` | Element-wise min; max 256 |
+| `ticks_us` | — | `int` | Microseconds since boot (wraps at 2³²) |
 
 ### Fused `_rq` Variants
 
@@ -286,15 +294,19 @@ x = fabric.relu(x)
 
 ### Note on built-in functions
 
-At `MICROPY_CONFIG_ROM_LEVEL_MINIMUM`, Python's `max()` and `min()` builtins are disabled. Use `fabric.relu(h)` instead of `[max(0, v) for v in h]` for activation functions.
+`min()`, `max()`, and `import math` are all enabled (`MICROPY_PY_BUILTINS_MIN_MAX` and `MICROPY_PY_MATH`). Use `fabric.relu(h)` rather than `[max(0,v) for v in h]` — the Fabric version is faster.
 
 ### Fabric Eligibility Notes
 
-Two kernels run on the scalar core rather than the Fabric:
+Four functions run on the scalar core rather than the Fabric:
 
 - **`biquad_cascade`** — the ping-pong buffer pattern (write section output, read as next section input) requires strict memory ordering. The `--disable-memory-ordering` Fabric compilation flag allows the Fabric to reorder these writes, producing wrong results. The single-section `biquad` works correctly because it has no inter-section dependencies.
 
 - **`l2_norm`** — uses Newton's method for integer square root (`isqrt`), which has a data-dependent while loop. The Fabric requires statically-schedulable loops; a while loop with unpredictable iteration count is not eligible. `sum_squares` (the inner MAC loop) IS Fabric-accelerated.
+
+- **`softmax`** — uses a Q15 exp lookup table for the probability computation. The exp table lookup and normalisation loop run on scalar. Practical for small output vectors (e.g. 10-class classification); not a performance bottleneck.
+
+- **`fft` / `fft_power`** ⚠ — the SDK's 4096-point radix-4 FFT is included but produces incorrect numerical output. The `fft_init_dst` bit-reversal function in the SDK uses shift amounts that generate a "pair-swap" permutation rather than the correct DIT-FFT bit-reversal when compiled outside the SDK's `add_eff_app` CMake context. **Do not use for production signal processing until this is resolved.** Investigation needed: build the SDK FFT example with `add_eff_app` and compare vs standalone Makefile build. Timing (~260ms for 4096 points) is realistic and the API is stable.
 
 ### Biquad coefficient format
 
