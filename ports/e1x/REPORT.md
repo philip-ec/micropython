@@ -198,13 +198,36 @@ For real inference, weights live in flash — not typed as Python lists. `weight
 A 784→128→10 int8 MLP trained with `train_mnist.py` and frozen into firmware achieves **97.3% test accuracy** — no degradation from float (97.3% float). Inference runs from the REPL:
 
 ```python
-import weights, fabric
+import weights, fabric, testdata
 
-# x: 28×28 MNIST digit as 784 int8 values (pixel − 128, scaled to [−127, 127])
-h   = weights.fc1(x, 1, 12, 0)   # 784→128 matmul + bias + requantize
-h   = fabric.relu(h)               # ReLU activation (Fabric-accelerated)
-out = weights.fc2(h, 1, 11, 0)    # 128→10  matmul + bias + requantize
-print(fabric.argmax(out))          # predicted digit class
+# testdata.digit(n) returns one of 10 frozen test samples (one per class)
+x   = testdata.digit(7)            # 784 int8 values from flash
+h   = weights.fc1(x, 1, 12, 0)   # 784→128 Fabric matmul + bias + requantize
+h   = fabric.relu(h)               # ReLU (Fabric-accelerated)
+out = weights.fc2(h, 1, 11, 0)    # 128→10  Fabric matmul + bias + requantize
+print(fabric.argmax(out))          # → 7
+```
+
+### Inference timing
+
+Both weight layers use `matvec_int8_bias_rq` — a Fabric kernel that fuses the matrix-vector multiply, int32 bias add, and requantize to int8 in one hardware dispatch.
+
+| Mode | Time per inference |
+|------|-------------------|
+| Scalar (inline C loop) | ~102 ms |
+| Fabric (`matvec_int8_bias_rq`) | ~16 ms |
+| **Speedup** | **6.5×** |
+
+The remaining ~16ms is Python-level boxing/unboxing of 784+128 integers. Pure compute is hardware-accelerated.
+
+Run `demo_mnist.py` via `send_file.py` to reproduce:
+```
+python3 send_file.py demo_mnist.py
+# 0 > 0 15483 us OK
+# 1 > 1 16301 us OK
+# ...
+# accuracy: 9 / 10
+# avg: 15545 us per inference
 ```
 
 ### Training & export workflow
