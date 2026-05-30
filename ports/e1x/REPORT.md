@@ -125,7 +125,9 @@ Dot product was chosen as the first kernel for several reasons:
 | `matvec` | — | `list` | Max 32×32 |
 | `matmul` | `np.matmul` | `list of lists` | Int32, max 16×16 |
 | `matmul_int8` | — | `list of lists` | Int8 inputs, int32 accumulators; max 16×16 |
-| `pointwise_conv` | — | `list` | 1×1 conv; max 16 channels |
+| `matmul_int8_rq` | — | `list of lists` | Fused matmul + requantize → int8; max 16×16 |
+| `pointwise_conv` | — | `list` | 1×1 conv, int32 out; max 16 channels |
+| `pointwise_conv_rq` | — | `list` | Fused 1×1 conv + requantize → int8; max 16 channels |
 
 ### Signal Processing
 | Function | numpy equivalent | Returns | Notes |
@@ -134,7 +136,8 @@ Dot product was chosen as the first kernel for several reasons:
 | `biquad` | — | `list` | Q15 coeffs `[b0,b1,b2,a1,a2]`; max 256 elements |
 | `biquad_cascade` | — | `list` | Up to 8 sections; **scalar** (see below) |
 | `conv1d` | — | `list` | Multi-channel; max 8 channels |
-| `conv2d_int8` | — | `list` | Int8; max 16×16 input, 8×8 kernel |
+| `conv2d_int8` | — | `list` | Int8 inputs, int32 out; max 16×16 input, 8×8 kernel |
+| `conv2d_int8_rq` | — | `list` | Fused conv2d + requantize → int8; max 16×16 input, 8×8 kernel |
 
 ### Pooling & Activation
 | Function | numpy equivalent | Returns | Notes |
@@ -147,7 +150,7 @@ Dot product was chosen as the first kernel for several reasons:
 ### Quantisation
 | Function | numpy equivalent | Returns | Notes |
 |----------|-----------------|---------|-------|
-| `requantize` | — | `list` | int32 → int8; formula: `clamp(((acc*scale)>>shift)+zp, -128, 127)` |
+| `requantize` | — | `list` | int32 → int8; `clamp(((acc*scale)>>shift)+zp, -128, 127)` |
 | `sum_squares` | — | `int` | Safe for Q8 inputs up to 256 elements |
 | `l2_norm` | — | `list` | Integer approx; **scalar** (see below) |
 
@@ -160,6 +163,27 @@ Dot product was chosen as the first kernel for several reasons:
 | `threshold` | — | `list` | 1 if a[i] > thresh else 0; max 256 |
 | `maximum` | `np.maximum` | `list` | Element-wise max; max 256 |
 | `minimum` | `np.minimum` | `list` | Element-wise min; max 256 |
+
+### Fused `_rq` Variants
+
+The `_rq` suffix denotes a fused kernel that computes int32 accumulators and requantizes to int8 in a single Fabric dispatch, before any Python object is created:
+
+```python
+# Without fusion — int32 round-trip through Python between layers:
+acc = fabric.matmul_int8(A, W)          # int32 list of lists
+x   = fabric.requantize(acc, s, sh, zp) # int8 list of lists (separate call)
+
+# With fusion — one call, no intermediate Python objects:
+x = fabric.matmul_int8_rq(A, W, scale, shift, zero_point)  # int8 directly
+```
+
+For a 3-layer network this eliminates 2 Python round-trips per inference. A MobileNet depthwise-separable block maps to:
+
+```python
+x = fabric.conv2d_int8_rq(x, dw_weights, H, W, kH, kW, s, sh, zp)  # depthwise
+x = fabric.pointwise_conv_rq(x, pw_weights, in_ch, out_ch, s, sh, zp) # pointwise
+x = fabric.relu(x)
+```
 
 All kernels operate on fixed-point integers. Floats require explicit quantisation (`int(x * scale)`) before passing in.
 
