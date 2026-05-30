@@ -33,12 +33,12 @@ with serial.Serial(PORT, BAUD, timeout=2) as ser:
     ser.write(b"\x04")
     time.sleep(0.5)
 
-    # read and print output
-    deadline = time.time() + 10
+    # read and print output — wait up to 30s, reset on each new chunk
+    deadline = time.time() + 30
     while time.time() < deadline:
         data = ser.read_all()
         if data:
             print(data.decode(errors="replace"), end="", flush=True)
-            deadline = time.time() + 2
+            deadline = time.time() + 5
         else:
             time.sleep(0.1)
