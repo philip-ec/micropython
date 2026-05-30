@@ -187,6 +187,62 @@ x = fabric.relu(x)
 
 All kernels operate on fixed-point integers. Floats require explicit quantisation (`int(x * scale)`) before passing in.
 
+---
+
+## Frozen Weights
+
+For real inference, weights need to live in flash — not typed as Python lists. `weights_gen.py` generates a `modweights.c` file that freezes model weights as `const int8_t` arrays in `.rodata` and exposes them as a `weights` Python module.
+
+### Workflow
+
+```bash
+# 1. Export quantized weights to JSON
+python3 export_weights.py my_model.tflite > my_model.json
+
+# 2. Generate the C file
+python3 weights_gen.py my_model.json
+
+# 3. Build and flash
+make && eff-flash build/firmware.hex sram -p /dev/ttyACM0
+```
+
+### JSON format
+
+```json
+{
+  "fc1": { "rows": 128, "cols": 784, "weights": [[...], ...] },
+  "fc2": { "rows": 10,  "cols": 128, "weights": [[...], ...] }
+}
+```
+
+Values must be in `[-128, 127]` (int8). The Makefile auto-includes `modweights.c` if it exists.
+
+### Python API
+
+Each layer becomes a function `weights.NAME(x, scale, shift, zero_point) -> list`:
+
+```python
+import weights, fabric
+
+x = sensor_input   # list of int8 values
+
+# MLP forward pass — weights never leave flash, never boxed as Python objects
+x = weights.fc1(x, scale=1, shift=7, zero_point=0)   # 784→128, fused matmul+rq
+x = fabric.relu(x)
+x = weights.fc2(x, scale=1, shift=7, zero_point=0)   # 128→10, fused matmul+rq
+print("class:", fabric.argmax(x))
+```
+
+The key property: weight matrices stay as C pointers into `.rodata`. Only the small input and output activations (e.g. 128 elements) pass through Python. No heap pressure from weights regardless of model size.
+
+### MobileNet depthwise-separable block
+
+```python
+x = fabric.conv2d_int8_rq(x, dw_w, H, W, kH, kW, s, sh, zp)    # depthwise
+x = weights.pw(x, s, sh, zp)                                      # pointwise (frozen)
+x = fabric.relu(x)
+```
+
 ### Fabric Eligibility Notes
 
 Two kernels run on the scalar core rather than the Fabric:
