@@ -67,4 +67,57 @@ assert fabric.clip([127,-128,0], 0, 100) == [100,0,0]
 assert fabric.clip([3,7,15,1], 4, 12) == [4,7,12,4]
 print("clip OK")
 
+# requantize
+r = fabric.requantize([1000, -2000, 300, 0], 1, 4, 5)
+assert r == [67, -120, 23, 5]
+r = fabric.requantize([10000, -10000, 50], 2, 6, 0)
+assert r == [127, -128, 1]
+print("requantize OK")
+
+# sum_squares and l2_norm
+assert fabric.sum_squares([3, 4]) == 25
+assert fabric.sum_squares([1, 2, 3, 4]) == 30
+assert fabric.l2_norm([3, 4], 256) == [153, 204]
+assert fabric.l2_norm([0, 5, 0, 0], 128) == [0, 128, 0, 0]
+print("l2_norm OK")
+
+# biquad_cascade (runs on scalar — cascade buffer ordering not Fabric-safe)
+assert fabric.biquad_cascade([100,200,300], [[32768,0,0,0,0],[32768,0,0,0,0]]) == [100,200,300]
+assert fabric.biquad_cascade([32768,32768,32768], [[16384,0,0,0,0],[16384,0,0,0,0]]) == [8192,8192,8192]
+print("biquad_cascade OK")
+
+# conv2d_int8
+out = fabric.conv2d_int8([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],[1,0,0,1],4,4,2,2)
+assert out[0] == 7 and out[4] == 17 and out[8] == 27
+out2 = fabric.conv2d_int8([1,2,3,4,5,6,7,8,9],[1,1,1,1],3,3,2,2)
+assert out2[0] == 12 and out2[3] == 28
+print("conv2d_int8 OK")
+
+# conv1d
+r = fabric.conv1d([1,2,3,4,5,6,7,8,9,10],[1,0,-1,0,1,0,1,1,1,0,0,1],2,2,3)
+assert r[0] == 0 and r[1] == 15
+assert r[2] == 2 and r[3] == 23
+assert r[4] == 4 and r[5] == 31
+print("conv1d OK")
+
+# avg_pool1d
+assert fabric.avg_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3) == [2,5,4,5]
+assert fabric.avg_pool1d([10,20,5,15,3,8,12,7], 4) == [12,7]
+assert fabric.avg_pool1d([0,10,20,30], 2) == [5,25]
+assert fabric.avg_pool1d([-6,-4,0,8], 2) == [-5,4]
+print("avg_pool1d OK")
+
+# pointwise_conv
+r1 = fabric.pointwise_conv([1,2,3,4], [1,0,0,0, 0,1,0,0, 1,1,1,1], 4, 3)
+assert r1 == [1, 2, 10]
+r2 = fabric.pointwise_conv([2,-1,3], [1,2,-1, -1,0,2], 3, 2)
+assert r2 == [-3, 4]
+print("pointwise_conv OK")
+
+# threshold, vmax, vmin
+assert fabric.threshold([3,-1,7,0,5], 3) == [0,0,1,0,1]
+assert fabric.vmax([1,8,3,6], [5,2,3,4]) == [5,8,3,6]
+assert fabric.vmin([1,8,3,6], [5,2,3,4]) == [1,2,3,4]
+print("threshold vmax vmin OK")
+
 print("ALL PASS")
