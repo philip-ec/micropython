@@ -342,20 +342,36 @@ static mp_obj_t fabric_relu(mp_obj_t x_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(fabric_relu_obj, fabric_relu);
 
-// fabric.scale(a, scalar) → list where each element is a[i] * scalar
-static mp_obj_t fabric_scale(mp_obj_t a_obj, mp_obj_t scalar_obj) {
+// fabric.multiply(a, b) → element-wise multiply (b list) or scalar multiply (b int)
+static mp_obj_t fabric_multiply(mp_obj_t a_obj, mp_obj_t b_obj) {
     size_t a_len;
     mp_obj_t *a_items;
     mp_obj_get_array(a_obj, &a_len, &a_items);
     if (a_len == 0 || a_len > MAX_N) {
         mp_raise_ValueError(MP_ERROR_TEXT("list length must be 1..256"));
     }
-    int32_t scalar = mp_obj_get_int(scalar_obj);
     int32_t a_buf[MAX_N], out_buf[MAX_N];
     for (size_t i = 0; i < a_len; i++) {
         a_buf[i] = mp_obj_get_int(a_items[i]);
     }
-    vec_scale(a_buf, scalar, out_buf, (int32_t)a_len);
+    if (mp_obj_is_int(b_obj)) {
+        // scalar broadcast
+        int32_t scalar = mp_obj_get_int(b_obj);
+        vec_scale(a_buf, scalar, out_buf, (int32_t)a_len);
+    } else {
+        // element-wise
+        size_t b_len;
+        mp_obj_t *b_items;
+        mp_obj_get_array(b_obj, &b_len, &b_items);
+        if (b_len != a_len) {
+            mp_raise_ValueError(MP_ERROR_TEXT("lists must be same length"));
+        }
+        int32_t b_buf[MAX_N];
+        for (size_t i = 0; i < b_len; i++) {
+            b_buf[i] = mp_obj_get_int(b_items[i]);
+        }
+        mul(a_buf, b_buf, out_buf, (int32_t)a_len);
+    }
     mp_obj_t result = mp_obj_new_list(a_len, NULL);
     mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
     for (size_t i = 0; i < a_len; i++) {
@@ -363,7 +379,7 @@ static mp_obj_t fabric_scale(mp_obj_t a_obj, mp_obj_t scalar_obj) {
     }
     return result;
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(fabric_scale_obj, fabric_scale);
+static MP_DEFINE_CONST_FUN_OBJ_2(fabric_multiply_obj, fabric_multiply);
 
 // fabric.add(a, b) → element-wise sum
 static mp_obj_t fabric_add(mp_obj_t a_obj, mp_obj_t b_obj) {
@@ -719,36 +735,6 @@ static mp_obj_t fabric_matvec(mp_obj_t mat_obj, mp_obj_t vec_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(fabric_matvec_obj, fabric_matvec);
 
-// fabric.mul(a, b) → element-wise multiply
-static mp_obj_t fabric_mul(mp_obj_t a_obj, mp_obj_t b_obj) {
-    size_t a_len, b_len;
-    mp_obj_t *a_items, *b_items;
-    mp_obj_get_array(a_obj, &a_len, &a_items);
-    mp_obj_get_array(b_obj, &b_len, &b_items);
-
-    if (a_len != b_len) {
-        mp_raise_ValueError(MP_ERROR_TEXT("lists must be same length"));
-    }
-    if (a_len > MAX_N) {
-        mp_raise_ValueError(MP_ERROR_TEXT("list too long (max 256)"));
-    }
-
-    int32_t a_buf[MAX_N], b_buf[MAX_N], out_buf[MAX_N];
-    for (size_t i = 0; i < a_len; i++) {
-        a_buf[i] = mp_obj_get_int(a_items[i]);
-        b_buf[i] = mp_obj_get_int(b_items[i]);
-    }
-
-    mul(a_buf, b_buf, out_buf, (int32_t)a_len);
-
-    mp_obj_t result = mp_obj_new_list(a_len, NULL);
-    mp_obj_list_t *result_list = MP_OBJ_TO_PTR(result);
-    for (size_t i = 0; i < a_len; i++) {
-        result_list->items[i] = mp_obj_new_int(out_buf[i]);
-    }
-    return result;
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(fabric_mul_obj, fabric_mul);
 
 // fabric.argmax(scores) → index of maximum value
 static mp_obj_t fabric_argmax(mp_obj_t a_obj) {
@@ -826,21 +812,20 @@ static const mp_rom_map_elem_t fabric_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_avg_pool1d), MP_ROM_PTR(&fabric_avg_pool1d_obj) },
     { MP_ROM_QSTR(MP_QSTR_pointwise_conv), MP_ROM_PTR(&fabric_pointwise_conv_obj) },
     { MP_ROM_QSTR(MP_QSTR_threshold), MP_ROM_PTR(&fabric_threshold_obj) },
-    { MP_ROM_QSTR(MP_QSTR_vmax), MP_ROM_PTR(&fabric_vmax_obj) },
-    { MP_ROM_QSTR(MP_QSTR_vmin), MP_ROM_PTR(&fabric_vmin_obj) },
+    { MP_ROM_QSTR(MP_QSTR_maximum), MP_ROM_PTR(&fabric_vmax_obj) },
+    { MP_ROM_QSTR(MP_QSTR_minimum), MP_ROM_PTR(&fabric_vmin_obj) },
     { MP_ROM_QSTR(MP_QSTR_relu), MP_ROM_PTR(&fabric_relu_obj) },
-    { MP_ROM_QSTR(MP_QSTR_scale), MP_ROM_PTR(&fabric_scale_obj) },
+    { MP_ROM_QSTR(MP_QSTR_multiply), MP_ROM_PTR(&fabric_multiply_obj) },
     { MP_ROM_QSTR(MP_QSTR_add), MP_ROM_PTR(&fabric_add_obj) },
     { MP_ROM_QSTR(MP_QSTR_max_pool1d), MP_ROM_PTR(&fabric_max_pool1d_obj) },
     { MP_ROM_QSTR(MP_QSTR_matmul), MP_ROM_PTR(&fabric_matmul_obj) },
     { MP_ROM_QSTR(MP_QSTR_clip), MP_ROM_PTR(&fabric_clip_obj) },
     { MP_ROM_QSTR(MP_QSTR_biquad), MP_ROM_PTR(&fabric_biquad_obj) },
     { MP_ROM_QSTR(MP_QSTR_matmul_int8), MP_ROM_PTR(&fabric_matmul_int8_obj) },
-    { MP_ROM_QSTR(MP_QSTR_dot_product), MP_ROM_PTR(&fabric_dot_product_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dot), MP_ROM_PTR(&fabric_dot_product_obj) },
     { MP_ROM_QSTR(MP_QSTR_matvec), MP_ROM_PTR(&fabric_matvec_obj) },
     { MP_ROM_QSTR(MP_QSTR_fir), MP_ROM_PTR(&fabric_fir_obj) },
     { MP_ROM_QSTR(MP_QSTR_argmax), MP_ROM_PTR(&fabric_argmax_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mul), MP_ROM_PTR(&fabric_mul_obj) },
 };
 static MP_DEFINE_CONST_DICT(fabric_module_globals, fabric_module_globals_table);
 

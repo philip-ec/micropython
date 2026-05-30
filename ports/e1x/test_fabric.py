@@ -1,10 +1,10 @@
 import fabric
 
-# dot_product
-assert fabric.dot_product([1,2,3,4],[4,3,2,1]) == 20
-assert fabric.dot_product([0]*10,[1]*10) == 0
-assert fabric.dot_product([1]*256,[1]*256) == 256
-print("dot_product OK")
+# dot
+assert fabric.dot([1,2,3,4],[4,3,2,1]) == 20
+assert fabric.dot([0]*10,[1]*10) == 0
+assert fabric.dot([1]*256,[1]*256) == 256
+print("dot OK")
 
 # matvec
 assert fabric.matvec([[1,0],[0,1]], [3,4]) == [3,4]
@@ -23,10 +23,12 @@ assert fabric.argmax([10,20,30]) == 2
 assert fabric.argmax([5]) == 0
 print("argmax OK")
 
-# mul
-assert fabric.mul([1,2,3,4],[4,3,2,1]) == [4,6,6,4]
-assert fabric.mul([2,3,4],[2,2,2]) == [4,6,8]
-print("mul OK")
+# multiply (element-wise and scalar broadcast)
+assert fabric.multiply([1,2,3,4],[4,3,2,1]) == [4,6,6,4]
+assert fabric.multiply([2,3,4],[2,2,2]) == [4,6,8]
+assert fabric.multiply([1,2,3,4], 3) == [3,6,9,12]
+assert fabric.multiply([0,-5,7], -2) == [0,10,-14]
+print("multiply OK")
 
 # matmul_int8
 assert fabric.matmul_int8([[1,2],[3,4]],[[1,0],[0,1]]) == [[1,2],[3,4]]
@@ -44,12 +46,10 @@ assert fabric.relu([0]) == [0]
 assert fabric.relu([1, 2, 3]) == [1, 2, 3]
 print("relu OK")
 
-# scale and add
-assert fabric.scale([1, 2, 3, 4], 3) == [3, 6, 9, 12]
-assert fabric.scale([0, -5, 7], -2) == [0, 10, -14]
+# add
 assert fabric.add([1, 2, 3], [10, 20, 30]) == [11, 22, 33]
 assert fabric.add([-1, 0, 1], [1, 0, -1]) == [0, 0, 0]
-print("scale add OK")
+print("add OK")
 
 # max_pool1d
 assert fabric.max_pool1d([3,1,4,1,5,9,2,6,5,3,5,8], 3) == [4,9,6,8]
@@ -114,10 +114,10 @@ r2 = fabric.pointwise_conv([2,-1,3], [1,2,-1, -1,0,2], 3, 2)
 assert r2 == [-3, 4]
 print("pointwise_conv OK")
 
-# threshold, vmax, vmin
+# threshold, maximum, minimum
 assert fabric.threshold([3,-1,7,0,5], 3) == [0,0,1,0,1]
-assert fabric.vmax([1,8,3,6], [5,2,3,4]) == [5,8,3,6]
-assert fabric.vmin([1,8,3,6], [5,2,3,4]) == [1,2,3,4]
-print("threshold vmax vmin OK")
+assert fabric.maximum([1,8,3,6], [5,2,3,4]) == [5,8,3,6]
+assert fabric.minimum([1,8,3,6], [5,2,3,4]) == [1,2,3,4]
+print("threshold maximum minimum OK")
 
 print("ALL PASS")
